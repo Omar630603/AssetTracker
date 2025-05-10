@@ -1,0 +1,24 @@
+Experiment Type,Reading Number,RSSI,Calculated Distance,Status
+Moving,1,0,0,Failed
+Moving,2,0,0,Failed
+Moving,3,0,0,Failed
+Moving,4,0,0,Failed
+Moving,5,0,0,Failed
+Moving,6,0,0,Failed
+Moving,7,0,0,Failed
+Moving,8,0,0,Failed
+Moving,9,0,0,Failed
+Moving,10,0,0,Failed
+Moving,11,0,0,Failed
+Moving,12,0,0,Failed
+Moving,13,0,0,Failed
+Moving,14,-92,125.89,Success
+Moving,15,-96,199.53,Success
+Moving,16,-87,70.79,Success
+Moving,17,-91,112.2,Success
+Moving,18,-66,6.31,Success
+Moving,19,-67,7.08,Success
+Moving,20,-52,1.26,Success
+Moving,21,-50,1.0,Success
+Moving,22,-51,1.12,Success
+Moving,23,-51,1.12,Success
