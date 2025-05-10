@@ -14,6 +14,9 @@ export default defineConfig({
         react(),
         tailwindcss(),
     ],
+    server: {
+        host: 'assettracker.test',
+    },
     esbuild: {
         jsx: 'automatic',
     },
