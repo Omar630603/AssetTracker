@@ -35,4 +35,7 @@ return [
         ],
     ],
 
+    'reader' => [
+        'key' => env('READER_KEY'),
+    ],
 ];

@@ -2,6 +2,7 @@
 
 namespace Database\Seeders;
 
+use App\Models\Location;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -12,6 +13,9 @@ class LocationSeeder extends Seeder
      */
     public function run(): void
     {
-        //
+        Location::create([
+            'name' => 'Omar Room',
+            'floor' => '1st Floor'
+        ]);
     }
 }

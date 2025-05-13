@@ -11,8 +11,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('readers', function (Blueprint $table) {
+        Schema::create('assets', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('location_id')->constrained()->onDelete('cascade')->nullable();
+            $table->string('name')->unique();
+            $table->string('type')->nullable();
             $table->timestamps();
         });
     }
@@ -22,6 +25,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('readers');
+        Schema::dropIfExists('assets');
     }
 };

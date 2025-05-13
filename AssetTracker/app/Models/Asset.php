@@ -6,5 +6,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class Asset extends Model
 {
-    //
+    const TYPE = [
+        'stationary' => 'stationary',
+        'mobile' => 'mobile'
+    ];
 }

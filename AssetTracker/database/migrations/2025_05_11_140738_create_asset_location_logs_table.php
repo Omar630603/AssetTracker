@@ -13,6 +13,11 @@ return new class extends Migration
     {
         Schema::create('asset_location_logs', function (Blueprint $table) {
             $table->id();
+            $table->foreignId('asset_id')->constrained()->onDelete('cascade');
+            $table->foreignId('location_id')->constrained()->onDelete('cascade')->nullable();
+            $table->float('rssi')->nullable();
+            $table->float('kalman_rssi')->nullable();
+            $table->float('estimated_distance')->nullable();
             $table->timestamps();
         });
     }

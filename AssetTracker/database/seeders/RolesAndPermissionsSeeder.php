@@ -15,23 +15,59 @@ class RolesAndPermissionsSeeder extends Seeder
     public function run(): void
     {
         app()[\Spatie\Permission\PermissionRegistrar::class]->forgetCachedPermissions();
+        $permissions = [
+            'create locations',
+            'read locations',
+            'update locations',
+            'delete locations',
 
-        Permission::create(['name' => 'edit articles']);
-        Permission::create(['name' => 'delete articles']);
-        Permission::create(['name' => 'publish articles']);
-        Permission::create(['name' => 'unpublish articles']);
+            'create tags',
+            'read tags',
+            'update tags',
+            'delete tags',
 
-        $role = Role::create(['name' => 'admin']);
-        $role->givePermissionTo([
-            'edit articles',
-            'delete articles',
-            'publish articles',
-            'unpublish articles'
-        ]);
-        $role = Role::create(['name' => 'staff']);
-        $role->givePermissionTo([
-            'edit articles',
-            'publish articles'
+            'create readers',
+            'read readers',
+            'update readers',
+            'delete readers',
+
+            'create assets',
+            'read assets',
+            'update assets',
+            'delete assets',
+
+            'create users',
+            'read users',
+            'update users',
+            'delete users',
+
+            'create roles',
+            'read roles',
+            'update roles',
+            'delete roles',
+
+            'create permissions',
+            'read permissions',
+            'update permissions',
+            'delete permissions',
+
+            'view asset location logs and history'
+        ];
+
+        foreach ($permissions as $permission) {
+            Permission::create(['name' => $permission]);
+        }
+
+        $adminRole = Role::create(['name' => 'admin']);
+        $staffRole = Role::create(['name' => 'staff']);
+
+        $adminRole->givePermissionTo($permissions);
+        $staffRole->givePermissionTo([
+            'read locations',
+            'read tags',
+            'read readers',
+            'read assets',
+            'view asset location logs and history'
         ]);
     }
 }
