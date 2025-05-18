@@ -20,9 +20,9 @@ class DatabaseSeeder extends Seeder
             AdminSeeder::class,
             StaffSeeder::class,
             LocationSeeder::class,
+            TagSeeder::class,
             AssetSeeder::class,
             ReaderSeeder::class,
-            TagSeeder::class,
             ReaderTagSeeder::class,
         ]);
     }

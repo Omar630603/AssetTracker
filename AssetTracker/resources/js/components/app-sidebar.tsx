@@ -14,7 +14,7 @@ const mainNavItems: NavItem[] = [
         icon: LayoutGrid,
     },
     {
-        title: 'Reader',
+        title: 'Readers',
         href: '/readers',
         icon: Microchip,
     }

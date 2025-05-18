@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('assets', function (Blueprint $table) {
             $table->id();
             $table->foreignId('location_id')->constrained()->onDelete('cascade')->nullable();
+            $table->foreignId('tag_id')->constrained()->onDelete('cascade')->nullable();
             $table->string('name')->unique();
             $table->string('type')->nullable();
             $table->timestamps();
