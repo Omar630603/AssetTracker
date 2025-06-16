@@ -8,7 +8,7 @@
 // === Wi-Fi Configuration ===
 const char* ssid = "POCO X6 5G";
 const char* password = "12345678";
-const char* serverUrl = "https://2c55-2404-c0-5a30-00-10bd-d8af.ngrok-free.app/api"; 
+const char* serverUrl = "http://150.230.8.22/api"; 
 const char* readerKey = "ESP32_READER_KEY";
 
 // === Default Configuration ===
@@ -32,24 +32,25 @@ unsigned long lastConfigVersion = 0;
 unsigned long currentConfigVersion = 0;
 bool forceConfigUpdate = false;
 
-// === Alert and Status Tracking ===
+// === Device Status Tracking ===
 struct DeviceStatus {
   String name;
   bool isPresent;
-  int consecutiveAlerts;
-  int consecutiveStatus;
-  unsigned long lastAlertSent;
-  unsigned long lastStatusSent;
+  int consecutiveDetections;
+  unsigned long lastReportSent;
   float lastDistance;
+  String lastStatus;
 };
 
 BLEScan* pBLEScan;
 std::vector<DeviceStatus> deviceStatuses;
 
-const int ALERT_CONFIRMATION_COUNT = 3; // Send alert after 3 consecutive detections
-const int STATUS_CONFIRMATION_COUNT = 5; // Send status after 5 consecutive detections
-const unsigned long MIN_ALERT_INTERVAL = 60000; // 1 minute between same alerts
-const unsigned long MIN_STATUS_INTERVAL = 300000; // 5 minutes between status updates
+// === Timing Configuration ===
+const int CONFIRMATION_COUNT = 3;                 // Reports after 3 consecutive detections
+const unsigned long MIN_HEARTBEAT_INTERVAL = 300000; // 5 minutes between heartbeats
+const unsigned long MIN_ALERT_INTERVAL = 60000;      // 1 minute between alerts
+const unsigned long VERSION_CHECK_INTERVAL = 60000;  // 1 minute between version checks
+const unsigned long NETWORK_CHECK_INTERVAL = 15000;  // 15 seconds network check
 
 class KalmanFilter {
 public:
@@ -92,326 +93,138 @@ float calculateDistance(float rssi) {
   return distance;
 }
 
-bool sendAlert(const String& deviceName, float distance, const String& alertType) {
-  Serial.println("[ALERT] Attempting to send alert for " + deviceName + " type:" + alertType + " distance:" + String(distance));
-  
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[ALERT] Failed - WiFi not connected");
-    Serial.println("[ALERT] WiFi status: " + String(WiFi.status()));
-    return false;
-  }
-
-  HTTPClient http;
-  String url = String(serverUrl) + "/reader-alert";
-  
-  Serial.println("[ALERT] URL: " + url);
-  Serial.println("[ALERT] Using Reader Key: " + String(readerKey));
-  
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Reader-Key", readerKey);
-  http.setTimeout(10000); // 10 second timeout
-  
-  DynamicJsonDocument doc(512);
-  doc["reader_name"] = DEVICE_NAME;
-  doc["device_name"] = deviceName;
-  doc["alert_type"] = alertType;
-  doc["distance"] = distance;
-  doc["timestamp"] = millis();
-  
-  String jsonString;
-  serializeJson(doc, jsonString);
-  
-  Serial.println("[ALERT] Sending JSON: " + jsonString);
-  Serial.println("[ALERT] Content-Length: " + String(jsonString.length()));
-  
-  int httpCode = http.POST(jsonString);
-  Serial.println("[ALERT] HTTP code: " + String(httpCode));
-  
-  if (httpCode > 0) {
-    String response = http.getString();
-    Serial.println("[ALERT] Response length: " + String(response.length()));
-    Serial.println("[ALERT] Response: " + response);
-    
-    bool success = (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED);
-    if (success) {
-      Serial.println("[ALERT] Successfully sent");
-    } else {
-      Serial.println("[ALERT] Failed with valid HTTP response - code: " + String(httpCode));
-    }
-    
-    http.end();
-    return success;
-  } else {
-    Serial.println("[ALERT] HTTP Error Details:");
-    Serial.println("[ALERT] Error code: " + String(httpCode));
-    
-    switch(httpCode) {
-      case HTTPC_ERROR_CONNECTION_REFUSED:
-        Serial.println("[ALERT] Connection refused by server");
-        break;
-      case HTTPC_ERROR_SEND_HEADER_FAILED:
-        Serial.println("[ALERT] Send header failed");
-        break;
-      case HTTPC_ERROR_SEND_PAYLOAD_FAILED:
-        Serial.println("[ALERT] Send payload failed");
-        break;
-      case HTTPC_ERROR_NOT_CONNECTED:
-        Serial.println("[ALERT] Not connected to server");
-        break;
-      case HTTPC_ERROR_CONNECTION_LOST:
-        Serial.println("[ALERT] Connection lost");
-        break;
-      case HTTPC_ERROR_NO_STREAM:
-        Serial.println("[ALERT] No stream available");
-        break;
-      case HTTPC_ERROR_NO_HTTP_SERVER:
-        Serial.println("[ALERT] No HTTP server");
-        break;
-      case HTTPC_ERROR_TOO_LESS_RAM:
-        Serial.println("[ALERT] Too less RAM");
-        break;
-      case HTTPC_ERROR_ENCODING:
-        Serial.println("[ALERT] Encoding error");
-        break;
-      case HTTPC_ERROR_STREAM_WRITE:
-        Serial.println("[ALERT] Stream write error");
-        break;
-      case HTTPC_ERROR_READ_TIMEOUT:
-        Serial.println("[ALERT] Read timeout");
-        break;
-      default:
-        Serial.println("[ALERT] Unknown HTTP error");
-        break;
-    }
-    
-    String errorString = http.errorToString(httpCode);
-    Serial.println("[ALERT] Error string: " + errorString);
-    
-    http.end();
-    return false;
-  }
-}
-
-bool sendHeartbeat(const String& deviceName, float distance) {
-  Serial.println("[HEARTBEAT] Attempting to send for " + deviceName + " distance:" + String(distance));
-  
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[HEARTBEAT] Failed - WiFi not connected");
-    Serial.println("[HEARTBEAT] WiFi status: " + String(WiFi.status()));
-    return false;
-  }
-
-  HTTPClient http;
-  String url = String(serverUrl) + "/reader-heartbeat";
-  
-  Serial.println("[HEARTBEAT] URL: " + url);
-  Serial.println("[HEARTBEAT] Using Reader Key: " + String(readerKey));
-  
-  http.begin(url);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-Reader-Key", readerKey);
-  http.setTimeout(10000); // 10 second timeout
-  
-  DynamicJsonDocument doc(512);
-  doc["reader_name"] = DEVICE_NAME;
-  doc["device_name"] = deviceName;
-  doc["distance"] = distance;
-  doc["status"] = "present";
-  doc["timestamp"] = millis();
-  
-  String jsonString;
-  serializeJson(doc, jsonString);
-  
-  Serial.println("[HEARTBEAT] Sending JSON: " + jsonString);
-  Serial.println("[HEARTBEAT] Content-Length: " + String(jsonString.length()));
-  
-  int httpCode = http.POST(jsonString);
-  Serial.println("[HEARTBEAT] HTTP code: " + String(httpCode));
-  
-  if (httpCode > 0) {
-    String response = http.getString();
-    Serial.println("[HEARTBEAT] Response length: " + String(response.length()));
-    Serial.println("[HEARTBEAT] Response: " + response);
-    
-    bool success = (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED);
-    if (success) {
-      Serial.println("[HEARTBEAT] Successfully sent");
-    } else {
-      Serial.println("[HEARTBEAT] Failed with valid HTTP response - code: " + String(httpCode));
-    }
-    
-    http.end();
-    return success;
-  } else {
-    Serial.println("[HEARTBEAT] HTTP Error Details:");
-    Serial.println("[HEARTBEAT] Error code: " + String(httpCode));
-    
-    switch(httpCode) {
-      case HTTPC_ERROR_CONNECTION_REFUSED:
-        Serial.println("[HEARTBEAT] Connection refused by server");
-        break;
-      case HTTPC_ERROR_SEND_HEADER_FAILED:
-        Serial.println("[HEARTBEAT] Send header failed");
-        break;
-      case HTTPC_ERROR_SEND_PAYLOAD_FAILED:
-        Serial.println("[HEARTBEAT] Send payload failed");
-        break;
-      case HTTPC_ERROR_NOT_CONNECTED:
-        Serial.println("[HEARTBEAT] Not connected to server");
-        break;
-      case HTTPC_ERROR_CONNECTION_LOST:
-        Serial.println("[HEARTBEAT] Connection lost");
-        break;
-      case HTTPC_ERROR_NO_STREAM:
-        Serial.println("[HEARTBEAT] No stream available");
-        break;
-      case HTTPC_ERROR_NO_HTTP_SERVER:
-        Serial.println("[HEARTBEAT] No HTTP server");
-        break;
-      case HTTPC_ERROR_TOO_LESS_RAM:
-        Serial.println("[HEARTBEAT] Too less RAM");
-        break;
-      case HTTPC_ERROR_ENCODING:
-        Serial.println("[HEARTBEAT] Encoding error");
-        break;
-      case HTTPC_ERROR_STREAM_WRITE:
-        Serial.println("[HEARTBEAT] Stream write error");
-        break;
-      case HTTPC_ERROR_READ_TIMEOUT:
-        Serial.println("[HEARTBEAT] Read timeout");
-        break;
-      default:
-        Serial.println("[HEARTBEAT] Unknown HTTP error");
-        break;
-    }
-    
-    String errorString = http.errorToString(httpCode);
-    Serial.println("[HEARTBEAT] Error string: " + errorString);
-    
-    http.end();
-    return false;
-  }
-}
-
-bool checkConfigVersion() {
-  Serial.println("[CONFIG] Checking version - Current:" + String(lastConfigVersion));
-  
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[CONFIG] Version check failed - WiFi not connected");
-    Serial.println("[CONFIG] WiFi status: " + String(WiFi.status()));
-    return false;
-  }
-
-  HTTPClient http;
-  String url = String(serverUrl) + "/reader-config?reader_name=" + DEVICE_NAME + "&version_check=true";
-  
-  Serial.println("[CONFIG] Version check URL: " + url);
-  Serial.println("[CONFIG] Using Reader Key: " + String(readerKey));
-  
-  http.begin(url);
-  http.addHeader("User-Agent", "ESP32HTTPClient/1.0");
-  http.addHeader("ngrok-skip-browser-warning", "true");
-  http.addHeader("X-Reader-Key", readerKey);
-  http.addHeader("Content-Type", "application/json");
-  http.setTimeout(10000); // 10 second timeout
-  
-  Serial.println("[CONFIG] Sending version check request...");
+// Unified HTTP response handler
+bool handleHttpResponse(HTTPClient& http, const String& operation) {
   int httpCode = http.GET();
-  Serial.println("[CONFIG] Version check HTTP code: " + String(httpCode));
+  Serial.println("[" + operation + "] HTTP code: " + String(httpCode));
   
   if (httpCode > 0) {
-    String payload = http.getString();
-    Serial.println("[CONFIG] Version response length: " + String(payload.length()));
-    Serial.println("[CONFIG] Version response: " + payload);
+    String response = http.getString();
+    Serial.println("[" + operation + "] Response length: " + String(response.length()));
     
-    if (httpCode == HTTP_CODE_OK) {
-      DynamicJsonDocument doc(512);
-      DeserializationError error = deserializeJson(doc, payload);
-      
-      if (!error) {
-        currentConfigVersion = doc["version"] | 0;
-        Serial.println("[CONFIG] Server version:" + String(currentConfigVersion) + " Local version:" + String(lastConfigVersion));
-        
-        if (currentConfigVersion != lastConfigVersion) {
-          Serial.println("[CONFIG] Version mismatch - Update needed");
-          http.end();
-          return true;
-        } else {
-          Serial.println("[CONFIG] Version up to date");
-        }
-      } else {
-        Serial.println("[CONFIG] JSON parse error: " + String(error.c_str()));
-      }
+    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+      Serial.println("[" + operation + "] Success");
+      return true;
+    } else {
+      Serial.println("[" + operation + "] Failed - HTTP code: " + String(httpCode));
+      Serial.println("[" + operation + "] Response: " + response);
+      return false;
     }
   } else {
-    Serial.println("[CONFIG] HTTP Error Details:");
-    Serial.println("[CONFIG] Error code: " + String(httpCode));
-    
-    switch(httpCode) {
-      case HTTPC_ERROR_CONNECTION_REFUSED:
-        Serial.println("[CONFIG] Connection refused by server");
-        break;
-      case HTTPC_ERROR_SEND_HEADER_FAILED:
-        Serial.println("[CONFIG] Send header failed");
-        break;
-      case HTTPC_ERROR_SEND_PAYLOAD_FAILED:
-        Serial.println("[CONFIG] Send payload failed");
-        break;
-      case HTTPC_ERROR_NOT_CONNECTED:
-        Serial.println("[CONFIG] Not connected to server");
-        break;
-      case HTTPC_ERROR_CONNECTION_LOST:
-        Serial.println("[CONFIG] Connection lost");
-        break;
-      case HTTPC_ERROR_NO_STREAM:
-        Serial.println("[CONFIG] No stream available");
-        break;
-      case HTTPC_ERROR_NO_HTTP_SERVER:
-        Serial.println("[CONFIG] No HTTP server");
-        break;
-      case HTTPC_ERROR_TOO_LESS_RAM:
-        Serial.println("[CONFIG] Too less RAM");
-        break;
-      case HTTPC_ERROR_ENCODING:
-        Serial.println("[CONFIG] Encoding error");
-        break;
-      case HTTPC_ERROR_STREAM_WRITE:
-        Serial.println("[CONFIG] Stream write error");
-        break;
-      case HTTPC_ERROR_READ_TIMEOUT:
-        Serial.println("[CONFIG] Read timeout");
-        break;
-      default:
-        Serial.println("[CONFIG] Unknown HTTP error");
-        break;
-    }
-    
-    String errorString = http.errorToString(httpCode);
-    Serial.println("[CONFIG] Error string: " + errorString);
+    Serial.println("[" + operation + "] HTTP Error: " + String(httpCode));
+    logHttpError(httpCode, operation);
+    return false;
   }
-  
-  http.end();
-  return false;
 }
 
-bool fetchConfigFromServer() {
-  Serial.println("[CONFIG] Fetching configuration from server");
+bool handleHttpPostResponse(HTTPClient& http, const String& operation) {
+  int httpCode = http.POST("");
+  Serial.println("[" + operation + "] HTTP code: " + String(httpCode));
+  
+  if (httpCode > 0) {
+    String response = http.getString();
+    Serial.println("[" + operation + "] Response length: " + String(response.length()));
+    
+    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+      Serial.println("[" + operation + "] Success");
+      return true;
+    } else {
+      Serial.println("[" + operation + "] Failed - HTTP code: " + String(httpCode));
+      Serial.println("[" + operation + "] Response: " + response);
+      return false;
+    }
+  } else {
+    Serial.println("[" + operation + "] HTTP Error: " + String(httpCode));
+    logHttpError(httpCode, operation);
+    return false;
+  }
+}
+
+void logHttpError(int httpCode, const String& operation) {
+  Serial.println("[" + operation + "] Error Details:");
+  switch(httpCode) {
+    case HTTPC_ERROR_CONNECTION_REFUSED:
+      Serial.println("[" + operation + "] Connection refused by server");
+      break;
+    case HTTPC_ERROR_SEND_HEADER_FAILED:
+      Serial.println("[" + operation + "] Send header failed");
+      break;
+    case HTTPC_ERROR_SEND_PAYLOAD_FAILED:
+      Serial.println("[" + operation + "] Send payload failed");
+      break;
+    case HTTPC_ERROR_NOT_CONNECTED:
+      Serial.println("[" + operation + "] Not connected to server");
+      break;
+    case HTTPC_ERROR_CONNECTION_LOST:
+      Serial.println("[" + operation + "] Connection lost");
+      break;
+    case HTTPC_ERROR_READ_TIMEOUT:
+      Serial.println("[" + operation + "] Read timeout");
+      break;
+    default:
+      Serial.println("[" + operation + "] Unknown HTTP error");
+      break;
+  }
+}
+
+// Unified location log sender (replaces both sendAlert and sendHeartbeat)
+bool sendLocationLog(const String& deviceName, float distance, const String& type, const String& status, float rawRssi = 0, float kalmanRssi = 0) {
+  Serial.println("[LOCATION_LOG] Sending " + type + " for " + deviceName + " status:" + status + " distance:" + String(distance));
   
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[CONFIG] Fetch failed - WiFi not connected");
+    Serial.println("[LOCATION_LOG] Failed - WiFi not connected");
+    return false;
+  }
+
+  HTTPClient http;
+  String url = String(serverUrl) + "/reader-log";
+  
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Reader-Key", readerKey);
+  http.setTimeout(10000);
+  
+  DynamicJsonDocument doc(512);
+  doc["reader_name"] = DEVICE_NAME;
+  doc["device_name"] = deviceName;
+  doc["type"] = type;
+  doc["status"] = status;
+  doc["estimated_distance"] = distance;
+  doc["timestamp"] = millis();
+  
+  // Include RSSI data if available
+  if (rawRssi != 0) doc["rssi"] = rawRssi;
+  if (kalmanRssi != 0) doc["kalman_rssi"] = kalmanRssi;
+  
+  String jsonString;
+  serializeJson(doc, jsonString);
+  
+  Serial.println("[LOCATION_LOG] Sending JSON: " + jsonString);
+  
+  int httpCode = http.POST(jsonString);
+  bool success = handleHttpPostResponse(http, "LOCATION_LOG");
+  http.end();
+  return success;
+}
+
+// Enhanced config check that returns config in same response if update needed
+bool checkAndFetchConfig() {
+  Serial.println("[CONFIG] Checking version and fetching config if needed");
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[CONFIG] Failed - WiFi not connected");
     return false;
   }
 
   HTTPClient http;
   String url = String(serverUrl) + "/reader-config?reader_name=" + DEVICE_NAME;
   
+  // Always fetch full config to simplify logic
   http.begin(url);
   http.addHeader("X-Reader-Key", readerKey);
-  http.setTimeout(10000); // 10 second timeout
+  http.setTimeout(10000);
   
   int httpCode = http.GET();
-  Serial.println("[CONFIG] Fetch HTTP code: " + String(httpCode));
   
   if (httpCode == HTTP_CODE_OK) {
     String payload = http.getString();
@@ -426,78 +239,91 @@ bool fetchConfigFromServer() {
       return false;
     }
     
-    lastConfigVersion = doc["version"] | lastConfigVersion;
-    currentConfigVersion = lastConfigVersion;
-    Serial.println("[CONFIG] Updated to version: " + String(lastConfigVersion));
+    unsigned long serverVersion = doc["version"] | 0;
     
-    // Update device statuses based on new targets
-    deviceStatuses.clear();
-    JsonArray targets = doc["targets"];
-    Serial.println("[CONFIG] Target devices count: " + String(targets.size()));
-    
-    for (JsonVariant target : targets) {
-      DeviceStatus status;
-      status.name = target.as<String>();
-      status.isPresent = false;
-      status.consecutiveAlerts = 0;
-      status.consecutiveStatus = 0;
-      status.lastAlertSent = 0;
-      status.lastStatusSent = 0;
-      status.lastDistance = -1;
-      deviceStatuses.push_back(status);
-      Serial.println("[CONFIG] Added target device: " + status.name);
+    // Check if update is needed
+    if (serverVersion != lastConfigVersion || forceConfigUpdate) {
+      Serial.println("[CONFIG] Update needed - Server:" + String(serverVersion) + " Local:" + String(lastConfigVersion));
+      applyConfiguration(doc);
+      lastConfigVersion = serverVersion;
+      currentConfigVersion = serverVersion;
+      forceConfigUpdate = false;
+      Serial.println("[CONFIG] Configuration updated successfully");
+    } else {
+      Serial.println("[CONFIG] Configuration up to date");
     }
     
-    if (deviceStatuses.empty()) {
-      DeviceStatus status;
-      status.name = TARGET_DEVICE_NAME;
-      status.isPresent = false;
-      status.consecutiveAlerts = 0;
-      status.consecutiveStatus = 0;
-      status.lastAlertSent = 0;
-      status.lastStatusSent = 0;
-      status.lastDistance = -1;
-      deviceStatuses.push_back(status);
-      Serial.println("[CONFIG] Using default target device: " + TARGET_DEVICE_NAME);
-    }
-    
-    JsonObject config = doc["config"];
-    if (!config.isNull()) {
-      Serial.println("[CONFIG] Processing configuration parameters");
-      
-      if (!config["kalman"].isNull()) {
-        float oldP = kalman_P, oldQ = kalman_Q, oldR = kalman_R, oldInitial = kalman_initial;
-        kalman_P = config["kalman"]["P"] | kalman_P;
-        kalman_Q = config["kalman"]["Q"] | kalman_Q;
-        kalman_R = config["kalman"]["R"] | kalman_R;
-        kalman_initial = config["kalman"]["initial"] | kalman_initial;
-        
-        if (oldP != kalman_P || oldQ != kalman_Q || oldR != kalman_R || oldInitial != kalman_initial) {
-          rssiFilter.updateParameters(kalman_Q, kalman_R, kalman_P, kalman_initial);
-        }
-      }
-      
-      TX_POWER = config["txPower"] | TX_POWER;
-      MAX_DISTANCE = config["maxDistance"] | MAX_DISTANCE;
-      SAMPLE_COUNT = config["sampleCount"] | SAMPLE_COUNT;
-      SAMPLE_DELAY_MS = config["sampleDelayMs"] | SAMPLE_DELAY_MS;
-      PATH_LOSS_EXPONENT = config["pathLossExponent"] | PATH_LOSS_EXPONENT;
-      
-      Serial.println("[CONFIG] Updated parameters - TX_POWER:" + String(TX_POWER) + 
-                    " MAX_DISTANCE:" + String(MAX_DISTANCE) + 
-                    " SAMPLE_COUNT:" + String(SAMPLE_COUNT) +
-                    " SAMPLE_DELAY:" + String(SAMPLE_DELAY_MS) +
-                    " PATH_LOSS:" + String(PATH_LOSS_EXPONENT));
-    }
-    
-    Serial.println("[CONFIG] Configuration fetch successful");
     http.end();
     return true;
   }
   
-  Serial.println("[CONFIG] Fetch failed - HTTP code: " + String(httpCode));
+  Serial.println("[CONFIG] Failed - HTTP code: " + String(httpCode));
+  logHttpError(httpCode, "CONFIG");
   http.end();
   return false;
+}
+
+// Separate function to apply configuration
+void applyConfiguration(DynamicJsonDocument& doc) {
+  Serial.println("[CONFIG] Applying new configuration");
+  
+  // Update device statuses based on new targets
+  deviceStatuses.clear();
+  JsonArray targets = doc["targets"];
+  Serial.println("[CONFIG] Target devices count: " + String(targets.size()));
+  
+  for (JsonVariant target : targets) {
+    DeviceStatus status;
+    status.name = target.as<String>();
+    status.isPresent = false;
+    status.consecutiveDetections = 0;
+    status.lastReportSent = 0;
+    status.lastDistance = -1;
+    status.lastStatus = "";
+    deviceStatuses.push_back(status);
+    Serial.println("[CONFIG] Added target device: " + status.name);
+  }
+  
+  if (deviceStatuses.empty()) {
+    DeviceStatus status;
+    status.name = TARGET_DEVICE_NAME;
+    status.isPresent = false;
+    status.consecutiveDetections = 0;
+    status.lastReportSent = 0;
+    status.lastDistance = -1;
+    status.lastStatus = "";
+    deviceStatuses.push_back(status);
+    Serial.println("[CONFIG] Using default target device: " + TARGET_DEVICE_NAME);
+  }
+  
+  JsonObject config = doc["config"];
+  if (!config.isNull()) {
+    Serial.println("[CONFIG] Processing configuration parameters");
+    
+    if (!config["kalman"].isNull()) {
+      float oldP = kalman_P, oldQ = kalman_Q, oldR = kalman_R, oldInitial = kalman_initial;
+      kalman_P = config["kalman"]["P"] | kalman_P;
+      kalman_Q = config["kalman"]["Q"] | kalman_Q;
+      kalman_R = config["kalman"]["R"] | kalman_R;
+      kalman_initial = config["kalman"]["initial"] | kalman_initial;
+      
+      if (oldP != kalman_P || oldQ != kalman_Q || oldR != kalman_R || oldInitial != kalman_initial) {
+        rssiFilter.updateParameters(kalman_Q, kalman_R, kalman_P, kalman_initial);
+      }
+    }
+    
+    TX_POWER = config["txPower"] | TX_POWER;
+    MAX_DISTANCE = config["maxDistance"] | MAX_DISTANCE;
+    SAMPLE_COUNT = config["sampleCount"] | SAMPLE_COUNT;
+    SAMPLE_DELAY_MS = config["sampleDelayMs"] | SAMPLE_DELAY_MS;
+    PATH_LOSS_EXPONENT = config["pathLossExponent"] | PATH_LOSS_EXPONENT;
+    
+    Serial.println("[CONFIG] Updated parameters - TX_POWER:" + String(TX_POWER) + 
+                  " MAX_DISTANCE:" + String(MAX_DISTANCE) + 
+                  " SAMPLE_COUNT:" + String(SAMPLE_COUNT) +
+                  " SAMPLE_DELAY:" + String(SAMPLE_DELAY_MS) +
+                  " PATH_LOSS:" + String(PATH_LOSS_EXPONENT));
+  }
 }
 
 void connectToWiFi() {
@@ -522,7 +348,30 @@ void connectToWiFi() {
   }
 }
 
-// Simultaneous multi-device scan
+// Determine appropriate report type and interval based on status
+bool shouldSendReport(DeviceStatus& deviceStatus, const String& currentStatus) {
+  unsigned long now = millis();
+  String reportType;
+  unsigned long minInterval;
+  
+  if (currentStatus == "present") {
+    reportType = "heartbeat";
+    minInterval = MIN_HEARTBEAT_INTERVAL;
+  } else {
+    reportType = "alert";
+    minInterval = MIN_ALERT_INTERVAL;
+  }
+  
+  unsigned long timeSinceLastReport = now - deviceStatus.lastReportSent;
+  
+  Serial.println("[REPORT] " + deviceStatus.name + " " + reportType + " check - consecutive:" + 
+                String(deviceStatus.consecutiveDetections) + " time since last:" + 
+                String(timeSinceLastReport) + "ms (min:" + String(minInterval) + "ms)");
+  
+  return (deviceStatus.consecutiveDetections >= CONFIRMATION_COUNT && 
+          timeSinceLastReport > minInterval);
+}
+
 void scanAllDevices() {
   if (deviceStatuses.empty()) {
     Serial.println("[SCAN] No target devices configured");
@@ -531,7 +380,6 @@ void scanAllDevices() {
   
   Serial.println("[SCAN] Starting scan for " + String(deviceStatuses.size()) + " target devices");
   
-  // Create a map to store RSSI samples for each device
   std::map<String, std::vector<float>> deviceSamples;
   
   // Initialize sample vectors
@@ -552,7 +400,6 @@ void scanAllDevices() {
       BLEAdvertisedDevice device = foundDevices->getDevice(i);
       String deviceName = device.getName().c_str();
       
-      // Check if this device is in our target list
       for (auto& deviceStatus : deviceStatuses) {
         if (deviceStatus.name == deviceName) {
           float rssi = device.getRSSI();
@@ -573,6 +420,10 @@ void scanAllDevices() {
   // Process results for each device
   for (auto& deviceStatus : deviceStatuses) {
     auto& samples = deviceSamples[deviceStatus.name];
+    String currentStatus;
+    float rawRssi = 0;
+    float filteredRssi = 0;
+    float filteredDistance = -1;
     
     if (!samples.empty()) {
       // Calculate average RSSI
@@ -580,94 +431,53 @@ void scanAllDevices() {
       for (float rssi : samples) {
         rssiSum += rssi;
       }
-      float rssiAvg = rssiSum / samples.size();
-      float filteredRssi = rssiFilter.update(rssiAvg);
-      float filteredDistance = calculateDistance(filteredRssi);
+      rawRssi = rssiSum / samples.size();
+      filteredRssi = rssiFilter.update(rawRssi);
+      filteredDistance = calculateDistance(filteredRssi);
       
-      Serial.println("[FILTER] " + deviceStatus.name + " - Raw RSSI avg:" + String(rssiAvg) + 
+      Serial.println("[FILTER] " + deviceStatus.name + " - Raw RSSI avg:" + String(rawRssi) + 
                     " Filtered RSSI:" + String(filteredRssi) + 
                     " Distance:" + String(filteredDistance) + "m from " + String(samples.size()) + " samples");
       
       deviceStatus.lastDistance = filteredDistance;
       
-      // Check if device is within range
-      bool currentlyPresent = (filteredDistance <= MAX_DISTANCE && filteredDistance > 0);
-      
-      if (currentlyPresent) {
-        deviceStatus.consecutiveAlerts = 0; // Reset alert counter
-        deviceStatus.consecutiveStatus++;
-        
-        Serial.println("[STATUS] " + deviceStatus.name + " present - consecutive count:" + String(deviceStatus.consecutiveStatus));
-        
-        // Send heartbeat after consecutive confirmations
-        if (deviceStatus.consecutiveStatus >= STATUS_CONFIRMATION_COUNT) {
-          unsigned long now = millis();
-          unsigned long timeSinceLastStatus = now - deviceStatus.lastStatusSent;
-          Serial.println("[STATUS] Ready to send heartbeat - time since last:" + String(timeSinceLastStatus) + "ms (min:" + String(MIN_STATUS_INTERVAL) + "ms)");
-          
-          if (timeSinceLastStatus > MIN_STATUS_INTERVAL) {
-            if (sendHeartbeat(deviceStatus.name, filteredDistance)) {
-              deviceStatus.lastStatusSent = now;
-            }
-          } else {
-            Serial.println("[STATUS] Heartbeat skipped - too soon");
-          }
-          deviceStatus.consecutiveStatus = 0; // Reset after sending
-        }
-        
+      // Determine status
+      if (filteredDistance <= MAX_DISTANCE && filteredDistance > 0) {
+        currentStatus = "present";
         deviceStatus.isPresent = true;
       } else {
-        deviceStatus.consecutiveStatus = 0; // Reset status counter
-        deviceStatus.consecutiveAlerts++;
-        
-        Serial.println("[ALERT] " + deviceStatus.name + " out of range - consecutive count:" + String(deviceStatus.consecutiveAlerts));
-        
-        // Send alert after consecutive confirmations
-        if (deviceStatus.consecutiveAlerts >= ALERT_CONFIRMATION_COUNT) {
-          unsigned long now = millis();
-          unsigned long timeSinceLastAlert = now - deviceStatus.lastAlertSent;
-          Serial.println("[ALERT] Ready to send alert - time since last:" + String(timeSinceLastAlert) + "ms (min:" + String(MIN_ALERT_INTERVAL) + "ms)");
-          
-          if (timeSinceLastAlert > MIN_ALERT_INTERVAL) {
-            if (sendAlert(deviceStatus.name, filteredDistance, "out_of_range")) {
-              deviceStatus.lastAlertSent = now;
-            }
-          } else {
-            Serial.println("[ALERT] Alert skipped - too soon");
-          }
-          deviceStatus.consecutiveAlerts = 0; // Reset after sending
-        }
-        
+        currentStatus = "out_of_range";
         deviceStatus.isPresent = false;
       }
-      
-      Serial.println("[RESULT] " + deviceStatus.name + ": " + String(filteredDistance, 1) + "m " + (currentlyPresent ? "PRESENT" : "ABSENT"));
-      
     } else {
       // Device not found
-      deviceStatus.consecutiveStatus = 0;
-      deviceStatus.consecutiveAlerts++;
-      
-      Serial.println("[SCAN] " + deviceStatus.name + " not found - consecutive count:" + String(deviceStatus.consecutiveAlerts));
-      
-      if (deviceStatus.consecutiveAlerts >= ALERT_CONFIRMATION_COUNT) {
-        unsigned long now = millis();
-        unsigned long timeSinceLastAlert = now - deviceStatus.lastAlertSent;
-        Serial.println("[ALERT] Ready to send not found alert - time since last:" + String(timeSinceLastAlert) + "ms");
-        
-        if (timeSinceLastAlert > MIN_ALERT_INTERVAL) {
-          if (sendAlert(deviceStatus.name, -1, "not_found")) {
-            deviceStatus.lastAlertSent = now;
-          }
-        } else {
-          Serial.println("[ALERT] Not found alert skipped - too soon");
-        }
-        deviceStatus.consecutiveAlerts = 0;
-      }
-      
+      currentStatus = "not_found";
       deviceStatus.isPresent = false;
-      Serial.println("[RESULT] " + deviceStatus.name + ": NOT FOUND");
+      Serial.println("[SCAN] " + deviceStatus.name + " not found");
     }
+    
+    // Update consecutive detection counter
+    if (currentStatus == deviceStatus.lastStatus) {
+      deviceStatus.consecutiveDetections++;
+    } else {
+      deviceStatus.consecutiveDetections = 1; // Reset to 1 for new status
+      deviceStatus.lastStatus = currentStatus;
+    }
+    
+    Serial.println("[STATUS] " + deviceStatus.name + " status:" + currentStatus + 
+                  " consecutive:" + String(deviceStatus.consecutiveDetections));
+    
+    // Check if we should send a report
+    if (shouldSendReport(deviceStatus, currentStatus)) {
+      String reportType = (currentStatus == "present") ? "heartbeat" : "alert";
+      
+      if (sendLocationLog(deviceStatus.name, filteredDistance, reportType, currentStatus, rawRssi, filteredRssi)) {
+        deviceStatus.lastReportSent = millis();
+        deviceStatus.consecutiveDetections = 0; // Reset after successful send
+      }
+    }
+    
+    Serial.println("[RESULT] " + deviceStatus.name + ": " + String(filteredDistance, 1) + "m " + currentStatus.toUpperCase());
   }
 }
 
@@ -679,27 +489,27 @@ void setup() {
   connectToWiFi();
   
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("[SYSTEM] WiFi connected - attempting to fetch initial configuration");
-    configFetched = fetchConfigFromServer();
+    Serial.println("[SYSTEM] WiFi connected - fetching initial configuration");
+    configFetched = checkAndFetchConfig();
     if (configFetched) {
       Serial.println("[SYSTEM] Initial configuration loaded successfully");
     } else {
       Serial.println("[SYSTEM] Failed to fetch initial configuration - using defaults");
-      forceConfigUpdate = true; // Force update on next loop
+      forceConfigUpdate = true;
     }
   } else {
     Serial.println("[SYSTEM] WiFi not connected - using default configuration");
   }
   
+  // Ensure we have at least one target device
   if (deviceStatuses.empty()) {
     DeviceStatus status;
     status.name = TARGET_DEVICE_NAME;
     status.isPresent = false;
-    status.consecutiveAlerts = 0;
-    status.consecutiveStatus = 0;
-    status.lastAlertSent = 0;
-    status.lastStatusSent = 0;
+    status.consecutiveDetections = 0;
+    status.lastReportSent = 0;
     status.lastDistance = -1;
+    status.lastStatus = "";
     deviceStatuses.push_back(status);
     Serial.println("[SYSTEM] Using default target device: " + TARGET_DEVICE_NAME);
   }
@@ -717,24 +527,14 @@ void setup() {
 
 void loop() {
   static unsigned long lastVersionCheck = 0;
-  static unsigned long lastFullConfigCheck = 0;
   static unsigned long lastNetworkCheck = 0;
   
-  // Network connectivity check every 15 seconds
-  if (millis() - lastNetworkCheck > 15000) {
+  // Network connectivity check
+  if (millis() - lastNetworkCheck > NETWORK_CHECK_INTERVAL) {
     Serial.println("[NETWORK] WiFi Status: " + String(WiFi.status()));
     Serial.println("[NETWORK] IP Address: " + WiFi.localIP().toString());
     Serial.println("[NETWORK] Signal Strength: " + String(WiFi.RSSI()) + " dBm");
     Serial.println("[NETWORK] Free Heap: " + String(ESP.getFreeHeap()) + " bytes");
-    
-    // Test basic connectivity
-    HTTPClient testHttp;
-    testHttp.begin("http://httpbin.org/get");
-    testHttp.setTimeout(5000);
-    int testCode = testHttp.GET();
-    Serial.println("[NETWORK] Connectivity test HTTP code: " + String(testCode));
-    testHttp.end();
-    
     lastNetworkCheck = millis();
   }
   
@@ -744,36 +544,21 @@ void loop() {
     connectToWiFi();
   }
   
-  // Check config version every 30 seconds
-  if (millis() - lastVersionCheck > 30000) {
-    Serial.println("[LOOP] Checking for config version updates");
+  // Check config version with 1-minute interval
+  if (millis() - lastVersionCheck > VERSION_CHECK_INTERVAL) {
+    Serial.println("[LOOP] Checking for config updates");
     if (WiFi.status() == WL_CONNECTED) {
-      if (checkConfigVersion() || forceConfigUpdate) {
-        Serial.println("[LOOP] Config update triggered");
-        fetchConfigFromServer();
-        forceConfigUpdate = false;
-      }
+      checkAndFetchConfig();
     } else {
-      Serial.println("[LOOP] Skipping version check - WiFi not connected");
+      Serial.println("[LOOP] Skipping config check - WiFi not connected");
     }
     lastVersionCheck = millis();
   }
   
-  // Fallback: Full config check every 5 minutes
-  if (millis() - lastFullConfigCheck > 300000) {
-    Serial.println("[LOOP] Performing scheduled full config check");
-    if (WiFi.status() == WL_CONNECTED) {
-      fetchConfigFromServer();
-    } else {
-      Serial.println("[LOOP] Skipping full config check - WiFi not connected");
-    }
-    lastFullConfigCheck = millis();
-  }
-  
-  // Scan all devices simultaneously
+  // Scan all devices
   Serial.println("[LOOP] Starting device scan cycle");
   scanAllDevices();
   
   Serial.println("[LOOP] Scan cycle complete - waiting 1 second");
-  delay(1000); // 1 second between scan cycles
+  delay(1000);
 }

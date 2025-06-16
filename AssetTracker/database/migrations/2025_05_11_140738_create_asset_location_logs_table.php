@@ -18,6 +18,8 @@ return new class extends Migration
             $table->float('rssi')->nullable();
             $table->float('kalman_rssi')->nullable();
             $table->float('estimated_distance')->nullable();
+            $table->string('type')->default('heartbeat')->after('estimated_distance');
+            $table->string('status')->default('present')->after('type');
             $table->timestamps();
         });
     }
