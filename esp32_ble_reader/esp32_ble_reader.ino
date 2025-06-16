@@ -477,7 +477,8 @@ void scanAllDevices() {
       }
     }
     
-    Serial.println("[RESULT] " + deviceStatus.name + ": " + String(filteredDistance, 1) + "m " + currentStatus.toUpperCase());
+    currentStatus.toUpperCase();
+    Serial.println("[RESULT] " + deviceStatus.name + ": " + String(filteredDistance, 1) + "m " + currentStatus);
   }
 }
 

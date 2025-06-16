@@ -3,7 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Asset extends Model
 {
@@ -12,8 +12,15 @@ class Asset extends Model
         'mobile' => 'mobile'
     ];
 
-    public function tag(): HasOne
+    protected $fillable = [
+        'location_id',
+        'tag_id',
+        'name',
+        'type',
+    ];
+
+    public function tag(): BelongsTo
     {
-        return $this->hasOne(Tag::class);
+        return $this->belongsTo(Tag::class);
     }
 }
