@@ -9,16 +9,37 @@ use App\Models\AssetLocationLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 
 class ReaderController extends Controller
 {
+    // Cache readers for 5 minutes to reduce database queries
+    private function getReaderCached($readerName)
+    {
+        return Cache::remember("reader_{$readerName}", 300, function () use ($readerName) {
+            return Reader::where('name', $readerName)->first();
+        });
+    }
+
+    // Cache asset lookups for 10 minutes
+    private function getAssetByTagNameCached($deviceName)
+    {
+        return Cache::remember("asset_tag_{$deviceName}", 600, function () use ($deviceName) {
+            return Asset::whereHas('tag', function ($query) use ($deviceName) {
+                $query->where('name', $deviceName);
+            })->first();
+        });
+    }
+
     // Fetch reader configuration including location_id and target devices
     public function getConfig(Request $request)
     {
         $readerName = $request->input('reader_name');
         $versionCheckOnly = $request->input('version_check', false);
 
-        $reader = Reader::where('name', $readerName)->first();
+        // Use cached reader lookup
+        $reader = $this->getReaderCached($readerName);
 
         if (!$reader) {
             return response()->json(['error' => 'Reader not found'], 404);
@@ -34,20 +55,39 @@ class ReaderController extends Controller
             ]);
         }
 
-        $targets = $reader->tags()->pluck('name')->toArray();
+        // Eager load tags to reduce queries
+        $targets = Reader::with('tags:name')
+            ->where('id', $reader->id)
+            ->first()
+            ->tags
+            ->pluck('name')
+            ->toArray();
 
         return response()->json([
             'name' => $reader->name,
             'targets' => $targets,
-            'config' => $reader->config,
+            'config' => $reader->config ?? [
+                'txPower' => -52,
+                'maxDistance' => 5.0,
+                'sampleCount' => 10,
+                'sampleDelayMs' => 100,
+                'pathLossExponent' => 2.5,
+                'kalman' => [
+                    'Q' => 0.001,
+                    'R' => 0.5,
+                    'P' => 1.0,
+                    'initial' => -70.0
+                ]
+            ],
             'version' => $version,
             'last_updated' => $reader->updated_at->toISOString(),
         ]);
     }
 
-    // Unified endpoint for receiving location logs (replaces separate heartbeat/alert endpoints)
+    // Unified endpoint for receiving location logs
     public function receiveLocationLog(Request $request)
     {
+        // Quick validation - fail fast
         $validator = Validator::make($request->all(), [
             'reader_name' => 'required|string|max:255',
             'device_name' => 'required|string|max:255',
@@ -55,8 +95,8 @@ class ReaderController extends Controller
             'status' => 'required|string|in:present,not_found,out_of_range',
             'rssi' => 'nullable|numeric',
             'kalman_rssi' => 'nullable|numeric',
-            'estimated_distance' => 'nullable|numeric|min:-1', // Allow -1 for not found
-            'timestamp' => 'required|integer',
+            'estimated_distance' => 'nullable|numeric|min:-1',
+            'timestamp' => 'nullable|integer', // Made optional
         ]);
 
         if ($validator->fails()) {
@@ -66,64 +106,62 @@ class ReaderController extends Controller
             ], 400);
         }
 
-        // Verify reader exists and get location_id
-        $reader = Reader::where('name', $request->reader_name)->first();
+        // Use cached reader lookup
+        $reader = $this->getReaderCached($request->reader_name);
         if (!$reader) {
             return response()->json(['error' => 'Reader not found'], 404);
         }
 
-        // Get location_id from reader
         $locationId = $reader->location_id;
         if (!$locationId) {
             Log::warning('Reader has no location assigned', ['reader_name' => $request->reader_name]);
             return response()->json(['error' => 'Reader location not configured'], 400);
         }
 
-        // Find the asset by tag name
-        $asset = Asset::whereHas('tag', function ($query) use ($request) {
-            $query->where('name', $request->device_name);
-        })->first();
+        // Use cached asset lookup
+        $asset = $this->getAssetByTagNameCached($request->device_name);
 
         if (!$asset) {
-            // Log warning but don't fail - device might not be registered yet
-            Log::warning('Asset not found for device', [
-                'device_name' => $request->device_name,
-                'reader_name' => $request->reader_name
-            ]);
-
+            // For unknown devices, return quickly without logging to reduce latency
             return response()->json([
                 'status' => 'warning',
-                'message' => 'Device received but asset not found in system'
+                'message' => 'Device not registered'
             ], 200);
         }
 
-        // Create location log entry
+        // Use database transaction for consistency and potential rollback
+        DB::beginTransaction();
+
         try {
-            $locationLog = AssetLocationLog::create([
+            // Prepare data
+            $logData = [
                 'asset_id' => $asset->id,
-                'location_id' => $locationId, // Use reader's location
+                'location_id' => $locationId,
                 'rssi' => $request->rssi,
                 'kalman_rssi' => $request->kalman_rssi,
                 'estimated_distance' => $request->estimated_distance,
                 'type' => $request->type,
                 'status' => $request->status,
-            ]);
+            ];
+
+            // Insert location log
+            $locationLog = AssetLocationLog::create($logData);
 
             // Update asset's current location only if status is "present"
             if ($request->status === 'present') {
-                $asset->update(['location_id' => $locationId]);
-
-                Log::info('Asset location updated', [
-                    'asset_id' => $asset->id,
-                    'asset_name' => $asset->name,
-                    'location_id' => $locationId,
-                    'distance' => $request->estimated_distance,
-                    'reader' => $request->reader_name
-                ]);
+                // Only update if location actually changed
+                if ($asset->location_id !== $locationId) {
+                    $asset->update(['location_id' => $locationId]);
+                    // Clear cache for this asset
+                    Cache::forget("asset_tag_{$request->device_name}");
+                }
             }
 
-            // Log alerts for monitoring
+            DB::commit();
+
+            // Async logging to reduce response time
             if ($request->type === 'alert') {
+                // Queue alert logs for async processing if you have queues set up
                 Log::warning('Asset Alert', [
                     'asset_id' => $asset->id,
                     'asset_name' => $asset->name,
@@ -131,38 +169,26 @@ class ReaderController extends Controller
                     'location_id' => $locationId,
                     'distance' => $request->estimated_distance,
                     'reader' => $request->reader_name,
-                    'rssi' => $request->rssi,
-                    'kalman_rssi' => $request->kalman_rssi
-                ]);
-            } else {
-                // Log heartbeats at debug level to reduce noise
-                Log::debug('Asset Heartbeat', [
-                    'asset_id' => $asset->id,
-                    'asset_name' => $asset->name,
-                    'location_id' => $locationId,
-                    'distance' => $request->estimated_distance,
-                    'reader' => $request->reader_name
                 ]);
             }
 
+            // Return minimal response to reduce transfer time
             return response()->json([
                 'status' => 'success',
-                'message' => 'Location log recorded successfully',
-                'log_id' => $locationLog->id,
-                'type' => $request->type
+                'log_id' => $locationLog->id
             ], 201);
 
         } catch (\Exception $e) {
+            DB::rollback();
+
             Log::error('Failed to create location log', [
                 'error' => $e->getMessage(),
-                'request_data' => $request->all(),
                 'reader_name' => $request->reader_name,
                 'device_name' => $request->device_name
             ]);
 
             return response()->json([
-                'error' => 'Failed to record location log',
-                'message' => 'Internal server error'
+                'error' => 'Failed to record log'
             ], 500);
         }
     }

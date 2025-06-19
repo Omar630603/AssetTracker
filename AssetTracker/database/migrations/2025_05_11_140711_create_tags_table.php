@@ -16,6 +16,10 @@ return new class extends Migration
             $table->string('name')->unique();
             $table->timestamps();
         });
+
+        Schema::table('tags', function (Blueprint $table) {
+            $table->index('name', 'tags_name_index');
+        });
     }
 
     /**

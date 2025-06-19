@@ -22,6 +22,13 @@ return new class extends Migration
             $table->string('status')->default('present');
             $table->timestamps();
         });
+
+        Schema::table('asset_location_logs', function (Blueprint $table) {
+            $table->index(['asset_id', 'location_id'], 'asset_location_logs_asset_location_index');
+            $table->index('type', 'asset_location_logs_type_index');
+            $table->index('status', 'asset_location_logs_status_index');
+            $table->index('created_at', 'asset_location_logs_created_at_index');
+        });
     }
 
     /**

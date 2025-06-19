@@ -19,6 +19,11 @@ return new class extends Migration
             $table->string('type')->nullable();
             $table->timestamps();
         });
+
+        Schema::table('assets', function (Blueprint $table) {
+            $table->index(['location_id', 'tag_id'], 'assets_location_tag_index');
+            $table->index('name', 'assets_name_index');
+        });
     }
 
     /**

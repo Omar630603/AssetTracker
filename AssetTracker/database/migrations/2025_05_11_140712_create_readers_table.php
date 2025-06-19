@@ -18,6 +18,10 @@ return new class extends Migration
             $table->json('config')->nullable();
             $table->timestamps();
         });
+
+        Schema::table('readers', function (Blueprint $table) {
+            $table->index(['location_id', 'name'], 'readers_location_name_index');
+        });
     }
 
     /**

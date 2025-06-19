@@ -20,11 +20,11 @@ float MAX_DISTANCE = 5.0;
 int SAMPLE_COUNT = 10;
 int SAMPLE_DELAY_MS = 100;
 
-// Kalman filter parameters
+// Enhanced Kalman filter parameters with adaptive noise
 float kalman_P = 1.0;
-float kalman_Q = 0.01;
-float kalman_R = 1.0;
-float kalman_initial = -50.0;
+float kalman_Q = 0.001;  // Reduced process noise for stability
+float kalman_R = 0.5;    // Reduced measurement noise
+float kalman_initial = -70.0;
 
 // === Smart Polling Variables ===
 bool configFetched = false;
@@ -39,26 +39,38 @@ struct DeviceStatus {
   int consecutiveDetections;
   unsigned long lastReportSent;
   float lastDistance;
+  float lastReportedDistance;  // Track what we actually reported
   String lastStatus;
+  String lastReportedStatus;   // Track what we actually reported
+  bool hasBeenReported;        // Track if device has ever been reported
+  float rssiHistory[5];        // Keep history for trend detection
+  int historyIndex;
+  unsigned long lastSeenTime;
 };
 
 BLEScan* pBLEScan;
 std::vector<DeviceStatus> deviceStatuses;
 
 // === Timing Configuration ===
-const int CONFIRMATION_COUNT = 3;                 // Reports after 3 consecutive detections
+const int CONFIRMATION_COUNT = 2;                    // Reduced from 3 for faster response
 const unsigned long MIN_HEARTBEAT_INTERVAL = 300000; // 5 minutes between heartbeats
-const unsigned long MIN_ALERT_INTERVAL = 60000;      // 1 minute between alerts
+const unsigned long MIN_ALERT_INTERVAL = 30000;      // 30 seconds between alerts (reduced from 60)
 const unsigned long VERSION_CHECK_INTERVAL = 60000;  // 1 minute between version checks
-const unsigned long NETWORK_CHECK_INTERVAL = 15000;  // 15 seconds network check
+const unsigned long NETWORK_CHECK_INTERVAL = 30000;  // 30 seconds network check
+const float SIGNIFICANT_DISTANCE_CHANGE = 0.5;       // 0.5 meter change triggers update
+const float RSSI_SIGNIFICANT_CHANGE = 5.0;           // 5 dBm change is significant
 
-class KalmanFilter {
+// Enhanced Kalman Filter with adaptive parameters
+class AdaptiveKalmanFilter {
 public:
-  KalmanFilter(float processNoise, float measurementNoise, float estimatedError, float initialValue) {
+  AdaptiveKalmanFilter(float processNoise, float measurementNoise, float estimatedError, float initialValue) {
     Q = processNoise;
     R = measurementNoise;
     P = estimatedError;
     X = initialValue;
+    lastMeasurement = initialValue;
+    innovationSum = 0;
+    innovationCount = 0;
   }
 
   void updateParameters(float processNoise, float measurementNoise, float estimatedError, float initialValue) {
@@ -70,104 +82,99 @@ public:
   }
 
   float update(float measurement) {
+    // Adaptive noise based on measurement change
+    float measurementDelta = abs(measurement - lastMeasurement);
+    float adaptiveR = R;
+    
+    // If measurement is jumping around a lot, increase measurement noise
+    if (measurementDelta > 10.0) {
+      adaptiveR = R * 3.0;
+    } else if (measurementDelta > 5.0) {
+      adaptiveR = R * 1.5;
+    }
+    
+    // Prediction
     P = P + Q;
-    K = P / (P + R);
-    X = X + K * (measurement - X);
+    
+    // Innovation
+    float innovation = measurement - X;
+    
+    // Update innovation statistics for convergence detection
+    innovationSum += abs(innovation);
+    innovationCount++;
+    
+    // Kalman gain with adaptive measurement noise
+    K = P / (P + adaptiveR);
+    
+    // Limit Kalman gain to prevent overshooting
+    K = constrain(K, 0, 0.5);
+    
+    // Update estimate
+    X = X + K * innovation;
+    
+    // Update error covariance
     P = (1 - K) * P;
+    
+    lastMeasurement = measurement;
+    
+    // Check for convergence and reduce gain if stable
+    if (innovationCount > 10) {
+      float avgInnovation = innovationSum / innovationCount;
+      if (avgInnovation < 2.0) {
+        // System is stable, reduce process noise
+        Q = max(Q * 0.9, 0.0001);
+      }
+      // Reset statistics periodically
+      if (innovationCount > 20) {
+        innovationSum = 0;
+        innovationCount = 0;
+      }
+    }
+    
     return X;
+  }
+
+  void reset(float initialValue) {
+    X = initialValue;
+    P = 1.0;
+    lastMeasurement = initialValue;
+    innovationSum = 0;
+    innovationCount = 0;
   }
 
 private:
   float Q, R, P, K, X;
+  float lastMeasurement;
+  float innovationSum;
+  int innovationCount;
 };
 
-KalmanFilter rssiFilter(kalman_Q, kalman_R, kalman_P, kalman_initial);
+AdaptiveKalmanFilter rssiFilter(kalman_Q, kalman_R, kalman_P, kalman_initial);
 
 float calculateDistance(float rssi) {
   if (rssi == 0) return -1.0;
-  float ratio_db = TX_POWER - rssi;
-  float distance = pow(10, ratio_db / (10 * PATH_LOSS_EXPONENT));
-  if (distance < 2.0) {
-    distance *= 0.5;
+  
+  // Apply different formulas for different RSSI ranges
+  float distance;
+  
+  if (rssi > -50) {
+    // Very close range - use linear approximation
+    distance = (rssi + 40) / 20.0;
+    distance = max(distance, 0.1f);  // Added 'f' to make it a float literal
+  } else if (rssi > -70) {
+    // Medium range - standard path loss
+    float ratio_db = TX_POWER - rssi;
+    distance = pow(10, ratio_db / (10 * PATH_LOSS_EXPONENT));
+  } else {
+    // Far range - use higher path loss exponent
+    float ratio_db = TX_POWER - rssi;
+    distance = pow(10, ratio_db / (10 * (PATH_LOSS_EXPONENT + 0.5)));
   }
+  
   return distance;
 }
 
-// Unified HTTP response handler
-bool handleHttpResponse(HTTPClient& http, const String& operation) {
-  int httpCode = http.GET();
-  Serial.println("[" + operation + "] HTTP code: " + String(httpCode));
-  
-  if (httpCode > 0) {
-    String response = http.getString();
-    Serial.println("[" + operation + "] Response length: " + String(response.length()));
-    
-    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
-      Serial.println("[" + operation + "] Success");
-      return true;
-    } else {
-      Serial.println("[" + operation + "] Failed - HTTP code: " + String(httpCode));
-      Serial.println("[" + operation + "] Response: " + response);
-      return false;
-    }
-  } else {
-    Serial.println("[" + operation + "] HTTP Error: " + String(httpCode));
-    logHttpError(httpCode, operation);
-    return false;
-  }
-}
-
-bool handleHttpPostResponse(HTTPClient& http, const String& operation) {
-  int httpCode = http.POST("");
-  Serial.println("[" + operation + "] HTTP code: " + String(httpCode));
-  
-  if (httpCode > 0) {
-    String response = http.getString();
-    Serial.println("[" + operation + "] Response length: " + String(response.length()));
-    
-    if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
-      Serial.println("[" + operation + "] Success");
-      return true;
-    } else {
-      Serial.println("[" + operation + "] Failed - HTTP code: " + String(httpCode));
-      Serial.println("[" + operation + "] Response: " + response);
-      return false;
-    }
-  } else {
-    Serial.println("[" + operation + "] HTTP Error: " + String(httpCode));
-    logHttpError(httpCode, operation);
-    return false;
-  }
-}
-
-void logHttpError(int httpCode, const String& operation) {
-  Serial.println("[" + operation + "] Error Details:");
-  switch(httpCode) {
-    case HTTPC_ERROR_CONNECTION_REFUSED:
-      Serial.println("[" + operation + "] Connection refused by server");
-      break;
-    case HTTPC_ERROR_SEND_HEADER_FAILED:
-      Serial.println("[" + operation + "] Send header failed");
-      break;
-    case HTTPC_ERROR_SEND_PAYLOAD_FAILED:
-      Serial.println("[" + operation + "] Send payload failed");
-      break;
-    case HTTPC_ERROR_NOT_CONNECTED:
-      Serial.println("[" + operation + "] Not connected to server");
-      break;
-    case HTTPC_ERROR_CONNECTION_LOST:
-      Serial.println("[" + operation + "] Connection lost");
-      break;
-    case HTTPC_ERROR_READ_TIMEOUT:
-      Serial.println("[" + operation + "] Read timeout");
-      break;
-    default:
-      Serial.println("[" + operation + "] Unknown HTTP error");
-      break;
-  }
-}
-
-// Unified location log sender (replaces both sendAlert and sendHeartbeat)
+// Optimized HTTP request with shorter timeout
 bool sendLocationLog(const String& deviceName, float distance, const String& type, const String& status, float rawRssi = 0, float kalmanRssi = 0) {
   Serial.println("[LOCATION_LOG] Sending " + type + " for " + deviceName + " status:" + status + " distance:" + String(distance));
   
@@ -182,194 +189,108 @@ bool sendLocationLog(const String& deviceName, float distance, const String& typ
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Reader-Key", readerKey);
-  http.setTimeout(10000);
+  http.setTimeout(5000); // Reduced timeout to 5 seconds
   
-  DynamicJsonDocument doc(512);
+  // Smaller JSON payload
+  StaticJsonDocument<256> doc;
   doc["reader_name"] = DEVICE_NAME;
   doc["device_name"] = deviceName;
   doc["type"] = type;
   doc["status"] = status;
-  doc["estimated_distance"] = distance;
-  doc["timestamp"] = millis();
+  doc["estimated_distance"] = round(distance * 1000) / 1000.0; // Round to 3 decimals
   
-  // Include RSSI data if available
-  if (rawRssi != 0) doc["rssi"] = rawRssi;
-  if (kalmanRssi != 0) doc["kalman_rssi"] = kalmanRssi;
+  if (rawRssi != 0) doc["rssi"] = round(rawRssi * 10) / 10.0;
+  if (kalmanRssi != 0) doc["kalman_rssi"] = round(kalmanRssi * 100) / 100.0;
   
   String jsonString;
   serializeJson(doc, jsonString);
   
-  Serial.println("[LOCATION_LOG] Sending JSON: " + jsonString);
+  Serial.println("[LOCATION_LOG] Sending: " + jsonString);
   
   int httpCode = http.POST(jsonString);
-  bool success = handleHttpPostResponse(http, "LOCATION_LOG");
+  bool success = false;
+  
+  if (httpCode > 0) {
+    // Consider 2xx codes as success
+    if (httpCode >= 200 && httpCode < 300) {
+      Serial.println("[LOCATION_LOG] Success - HTTP " + String(httpCode));
+      success = true;
+    } else {
+      Serial.println("[LOCATION_LOG] Failed - HTTP " + String(httpCode));
+    }
+  } else {
+    Serial.println("[LOCATION_LOG] HTTP Error: " + http.errorToString(httpCode));
+  }
+  
   http.end();
   return success;
 }
 
-// Enhanced config check that returns config in same response if update needed
-bool checkAndFetchConfig() {
-  Serial.println("[CONFIG] Checking version and fetching config if needed");
+// Check if we need to send update based on changes
+bool needsUpdate(DeviceStatus& deviceStatus, const String& currentStatus, float currentDistance) {
+  unsigned long now = millis();
   
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[CONFIG] Failed - WiFi not connected");
-    return false;
-  }
-
-  HTTPClient http;
-  String url = String(serverUrl) + "/reader-config?reader_name=" + DEVICE_NAME;
-  
-  // Always fetch full config to simplify logic
-  http.begin(url);
-  http.addHeader("X-Reader-Key", readerKey);
-  http.setTimeout(10000);
-  
-  int httpCode = http.GET();
-  
-  if (httpCode == HTTP_CODE_OK) {
-    String payload = http.getString();
-    Serial.println("[CONFIG] Received payload length: " + String(payload.length()));
-    
-    DynamicJsonDocument doc(2048);
-    DeserializationError error = deserializeJson(doc, payload);
-    
-    if (error) {
-      Serial.println("[CONFIG] JSON parse error: " + String(error.c_str()));
-      http.end();
-      return false;
-    }
-    
-    unsigned long serverVersion = doc["version"] | 0;
-    
-    // Check if update is needed
-    if (serverVersion != lastConfigVersion || forceConfigUpdate) {
-      Serial.println("[CONFIG] Update needed - Server:" + String(serverVersion) + " Local:" + String(lastConfigVersion));
-      applyConfiguration(doc);
-      lastConfigVersion = serverVersion;
-      currentConfigVersion = serverVersion;
-      forceConfigUpdate = false;
-      Serial.println("[CONFIG] Configuration updated successfully");
-    } else {
-      Serial.println("[CONFIG] Configuration up to date");
-    }
-    
-    http.end();
+  // First time detection - always report
+  if (!deviceStatus.hasBeenReported) {
+    Serial.println("[UPDATE] First time detection for " + deviceStatus.name);
     return true;
   }
   
-  Serial.println("[CONFIG] Failed - HTTP code: " + String(httpCode));
-  logHttpError(httpCode, "CONFIG");
-  http.end();
+  // Status change - always report (device appeared/disappeared)
+  if (currentStatus != deviceStatus.lastReportedStatus) {
+    Serial.println("[UPDATE] Status changed from " + deviceStatus.lastReportedStatus + " to " + currentStatus);
+    return true;
+  }
+  
+  // Check for significant distance change (only for present devices)
+  if (currentStatus == "present" && deviceStatus.lastReportedDistance > 0) {
+    float distanceChange = abs(currentDistance - deviceStatus.lastReportedDistance);
+    if (distanceChange >= SIGNIFICANT_DISTANCE_CHANGE) {
+      Serial.println("[UPDATE] Significant distance change: " + String(distanceChange) + "m");
+      return true;
+    }
+  }
+  
+  // Regular heartbeat interval for present devices
+  unsigned long timeSinceLastReport = now - deviceStatus.lastReportSent;
+  if (currentStatus == "present" && timeSinceLastReport >= MIN_HEARTBEAT_INTERVAL) {
+    Serial.println("[UPDATE] Heartbeat interval reached: " + String(timeSinceLastReport/1000) + "s");
+    return true;
+  }
+  
+  // Alert re-send interval for missing/out of range devices
+  if (currentStatus != "present" && timeSinceLastReport >= MIN_ALERT_INTERVAL) {
+    Serial.println("[UPDATE] Alert interval reached: " + String(timeSinceLastReport/1000) + "s");
+    return true;
+  }
+  
   return false;
 }
 
-// Separate function to apply configuration
-void applyConfiguration(DynamicJsonDocument& doc) {
-  Serial.println("[CONFIG] Applying new configuration");
+// Check for RSSI trend to detect movement
+bool isMoving(DeviceStatus& deviceStatus, float currentRssi) {
+  // Add to history
+  deviceStatus.rssiHistory[deviceStatus.historyIndex] = currentRssi;
+  deviceStatus.historyIndex = (deviceStatus.historyIndex + 1) % 5;
   
-  // Update device statuses based on new targets
-  deviceStatuses.clear();
-  JsonArray targets = doc["targets"];
-  Serial.println("[CONFIG] Target devices count: " + String(targets.size()));
+  // Need full history
+  if (deviceStatus.rssiHistory[4] == 0) return false;
   
-  for (JsonVariant target : targets) {
-    DeviceStatus status;
-    status.name = target.as<String>();
-    status.isPresent = false;
-    status.consecutiveDetections = 0;
-    status.lastReportSent = 0;
-    status.lastDistance = -1;
-    status.lastStatus = "";
-    deviceStatuses.push_back(status);
-    Serial.println("[CONFIG] Added target device: " + status.name);
+  // Calculate variance
+  float sum = 0, mean = 0;
+  for (int i = 0; i < 5; i++) {
+    sum += deviceStatus.rssiHistory[i];
   }
+  mean = sum / 5.0;
   
-  if (deviceStatuses.empty()) {
-    DeviceStatus status;
-    status.name = TARGET_DEVICE_NAME;
-    status.isPresent = false;
-    status.consecutiveDetections = 0;
-    status.lastReportSent = 0;
-    status.lastDistance = -1;
-    status.lastStatus = "";
-    deviceStatuses.push_back(status);
-    Serial.println("[CONFIG] Using default target device: " + TARGET_DEVICE_NAME);
+  float variance = 0;
+  for (int i = 0; i < 5; i++) {
+    variance += pow(deviceStatus.rssiHistory[i] - mean, 2);
   }
+  variance /= 5.0;
   
-  JsonObject config = doc["config"];
-  if (!config.isNull()) {
-    Serial.println("[CONFIG] Processing configuration parameters");
-    
-    if (!config["kalman"].isNull()) {
-      float oldP = kalman_P, oldQ = kalman_Q, oldR = kalman_R, oldInitial = kalman_initial;
-      kalman_P = config["kalman"]["P"] | kalman_P;
-      kalman_Q = config["kalman"]["Q"] | kalman_Q;
-      kalman_R = config["kalman"]["R"] | kalman_R;
-      kalman_initial = config["kalman"]["initial"] | kalman_initial;
-      
-      if (oldP != kalman_P || oldQ != kalman_Q || oldR != kalman_R || oldInitial != kalman_initial) {
-        rssiFilter.updateParameters(kalman_Q, kalman_R, kalman_P, kalman_initial);
-      }
-    }
-    
-    TX_POWER = config["txPower"] | TX_POWER;
-    MAX_DISTANCE = config["maxDistance"] | MAX_DISTANCE;
-    SAMPLE_COUNT = config["sampleCount"] | SAMPLE_COUNT;
-    SAMPLE_DELAY_MS = config["sampleDelayMs"] | SAMPLE_DELAY_MS;
-    PATH_LOSS_EXPONENT = config["pathLossExponent"] | PATH_LOSS_EXPONENT;
-    
-    Serial.println("[CONFIG] Updated parameters - TX_POWER:" + String(TX_POWER) + 
-                  " MAX_DISTANCE:" + String(MAX_DISTANCE) + 
-                  " SAMPLE_COUNT:" + String(SAMPLE_COUNT) +
-                  " SAMPLE_DELAY:" + String(SAMPLE_DELAY_MS) +
-                  " PATH_LOSS:" + String(PATH_LOSS_EXPONENT));
-  }
-}
-
-void connectToWiFi() {
-  Serial.println("[WIFI] Connecting to " + String(ssid));
-  WiFi.begin(ssid, password);
-  
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-  Serial.println();
-
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("[WIFI] Connected successfully");
-    Serial.println("[WIFI] IP address: " + WiFi.localIP().toString());
-    Serial.println("[WIFI] Signal strength: " + String(WiFi.RSSI()) + " dBm");
-  } else {
-    Serial.println("[WIFI] Connection failed after " + String(attempts) + " attempts");
-    Serial.println("[WIFI] WiFi status: " + String(WiFi.status()));
-  }
-}
-
-// Determine appropriate report type and interval based on status
-bool shouldSendReport(DeviceStatus& deviceStatus, const String& currentStatus) {
-  unsigned long now = millis();
-  String reportType;
-  unsigned long minInterval;
-  
-  if (currentStatus == "present") {
-    reportType = "heartbeat";
-    minInterval = MIN_HEARTBEAT_INTERVAL;
-  } else {
-    reportType = "alert";
-    minInterval = MIN_ALERT_INTERVAL;
-  }
-  
-  unsigned long timeSinceLastReport = now - deviceStatus.lastReportSent;
-  
-  Serial.println("[REPORT] " + deviceStatus.name + " " + reportType + " check - consecutive:" + 
-                String(deviceStatus.consecutiveDetections) + " time since last:" + 
-                String(timeSinceLastReport) + "ms (min:" + String(minInterval) + "ms)");
-  
-  return (deviceStatus.consecutiveDetections >= CONFIRMATION_COUNT && 
-          timeSinceLastReport > minInterval);
+  // High variance indicates movement
+  return variance > 25.0; // 5 dBm standard deviation
 }
 
 void scanAllDevices() {
@@ -378,46 +299,60 @@ void scanAllDevices() {
     return;
   }
   
-  Serial.println("[SCAN] Starting scan for " + String(deviceStatuses.size()) + " target devices");
+  Serial.println("[SCAN] Scanning for " + String(deviceStatuses.size()) + " devices");
   
   std::map<String, std::vector<float>> deviceSamples;
   
-  // Initialize sample vectors
+  // Initialize sample vectors for all devices
   for (auto& deviceStatus : deviceStatuses) {
     deviceSamples[deviceStatus.name] = std::vector<float>();
   }
   
   unsigned long startTime = millis();
-  int totalScans = 0;
+  int actualSamples = 0;
   
-  // Collect samples for all devices simultaneously
-  while (totalScans < SAMPLE_COUNT && (millis() - startTime < 30000)) {
+  // Adaptive sampling - reduce samples if devices are stable
+  int samplesToTake = SAMPLE_COUNT;
+  bool allStable = true;
+  for (auto& deviceStatus : deviceStatuses) {
+    if (isMoving(deviceStatus, deviceStatus.lastDistance) || !deviceStatus.hasBeenReported) {
+      allStable = false;
+      break;
+    }
+  }
+  if (allStable) {
+    samplesToTake = SAMPLE_COUNT / 2;
+  }
+  
+  // Collect samples for ALL devices simultaneously
+  while (actualSamples < samplesToTake && (millis() - startTime < 10000)) {
     BLEScanResults* foundDevices = pBLEScan->start(1, false);
-    
-    Serial.println("[SCAN] Found " + String(foundDevices->getCount()) + " BLE devices in scan " + String(totalScans + 1));
     
     for (int i = 0; i < foundDevices->getCount(); i++) {
       BLEAdvertisedDevice device = foundDevices->getDevice(i);
       String deviceName = device.getName().c_str();
       
+      // Check if this is one of our target devices
       for (auto& deviceStatus : deviceStatuses) {
         if (deviceStatus.name == deviceName) {
           float rssi = device.getRSSI();
           deviceSamples[deviceName].push_back(rssi);
-          Serial.println("[SCAN] Target found: " + deviceName + " RSSI:" + String(rssi));
           break;
         }
       }
     }
     
     pBLEScan->clearResults();
-    totalScans++;
-    delay(SAMPLE_DELAY_MS);
+    actualSamples++;
+    
+    if (actualSamples < samplesToTake) {
+      delay(SAMPLE_DELAY_MS);
+    }
   }
   
-  Serial.println("[SCAN] Completed " + String(totalScans) + " scans in " + String(millis() - startTime) + "ms");
+  Serial.println("[SCAN] Completed " + String(actualSamples) + " scans in " + String(millis() - startTime) + "ms");
   
-  // Process results for each device
+  // Process results for each device and send individual reports as needed
   for (auto& deviceStatus : deviceStatuses) {
     auto& samples = deviceSamples[deviceStatus.name];
     String currentStatus;
@@ -426,83 +361,159 @@ void scanAllDevices() {
     float filteredDistance = -1;
     
     if (!samples.empty()) {
+      // Remove outliers before averaging
+      if (samples.size() > 2) {
+        std::sort(samples.begin(), samples.end());
+        samples.erase(samples.begin());
+        samples.pop_back();
+      }
+      
       // Calculate average RSSI
       float rssiSum = 0;
       for (float rssi : samples) {
         rssiSum += rssi;
       }
       rawRssi = rssiSum / samples.size();
+      
+      // Reset Kalman filter for devices that were lost for a while
+      if (!deviceStatus.isPresent && (millis() - deviceStatus.lastSeenTime) > 30000) {
+        rssiFilter.reset(rawRssi);
+        Serial.println("[FILTER] Reset Kalman for " + deviceStatus.name);
+      }
+      
       filteredRssi = rssiFilter.update(rawRssi);
       filteredDistance = calculateDistance(filteredRssi);
       
-      Serial.println("[FILTER] " + deviceStatus.name + " - Raw RSSI avg:" + String(rawRssi) + 
-                    " Filtered RSSI:" + String(filteredRssi) + 
-                    " Distance:" + String(filteredDistance) + "m from " + String(samples.size()) + " samples");
-      
+      deviceStatus.lastSeenTime = millis();
       deviceStatus.lastDistance = filteredDistance;
       
-      // Determine status
+      // Determine status with hysteresis
       if (filteredDistance <= MAX_DISTANCE && filteredDistance > 0) {
         currentStatus = "present";
         deviceStatus.isPresent = true;
-      } else {
+      } else if (filteredDistance > MAX_DISTANCE * 1.2) {
         currentStatus = "out_of_range";
         deviceStatus.isPresent = false;
+      } else {
+        // In hysteresis zone - keep previous status
+        currentStatus = deviceStatus.lastStatus.isEmpty() ? "out_of_range" : deviceStatus.lastStatus;
       }
+      
+      // Check for movement
+      bool moving = isMoving(deviceStatus, rawRssi);
+      if (moving && deviceStatus.hasBeenReported) {
+        Serial.println("[MOVEMENT] " + deviceStatus.name + " is moving");
+      }
+      
     } else {
       // Device not found
       currentStatus = "not_found";
       deviceStatus.isPresent = false;
-      Serial.println("[SCAN] " + deviceStatus.name + " not found");
+      deviceStatus.lastDistance = -1;
+      filteredDistance = -1;
     }
     
     // Update consecutive detection counter
     if (currentStatus == deviceStatus.lastStatus) {
       deviceStatus.consecutiveDetections++;
     } else {
-      deviceStatus.consecutiveDetections = 1; // Reset to 1 for new status
-      deviceStatus.lastStatus = currentStatus;
+      deviceStatus.consecutiveDetections = 1;
     }
     
-    Serial.println("[STATUS] " + deviceStatus.name + " status:" + currentStatus + 
-                  " consecutive:" + String(deviceStatus.consecutiveDetections));
+    deviceStatus.lastStatus = currentStatus;
     
-    // Check if we should send a report
-    if (shouldSendReport(deviceStatus, currentStatus)) {
-      String reportType = (currentStatus == "present") ? "heartbeat" : "alert";
-      
-      if (sendLocationLog(deviceStatus.name, filteredDistance, reportType, currentStatus, rawRssi, filteredRssi)) {
-        deviceStatus.lastReportSent = millis();
-        deviceStatus.consecutiveDetections = 0; // Reset after successful send
+    Serial.println("[STATUS] " + deviceStatus.name + " " + currentStatus + 
+                  " dist:" + String(filteredDistance, 2) + "m" +
+                  " consec:" + String(deviceStatus.consecutiveDetections));
+    
+    // Check if we should send a report (after confirmation count reached)
+    if (deviceStatus.consecutiveDetections >= CONFIRMATION_COUNT) {
+      if (needsUpdate(deviceStatus, currentStatus, filteredDistance)) {
+        String reportType = (currentStatus == "present") ? "heartbeat" : "alert";
+        
+        if (sendLocationLog(deviceStatus.name, filteredDistance, reportType, currentStatus, rawRssi, filteredRssi)) {
+          deviceStatus.lastReportSent = millis();
+          deviceStatus.lastReportedDistance = filteredDistance;
+          deviceStatus.lastReportedStatus = currentStatus;
+          deviceStatus.hasBeenReported = true;
+          Serial.println("[REPORT] Successfully sent " + reportType + " for " + deviceStatus.name);
+        } else {
+          Serial.println("[REPORT] Failed to send " + reportType + " for " + deviceStatus.name);
+        }
+      } else {
+        Serial.println("[REPORT] No update needed for " + deviceStatus.name);
       }
     }
-    
-    currentStatus.toUpperCase();
-    Serial.println("[RESULT] " + deviceStatus.name + ": " + String(filteredDistance, 1) + "m " + currentStatus);
   }
 }
 
-void setup() {
-  Serial.begin(9600);
-  Serial.println("[SYSTEM] ESP32 Asset Reader starting...");
-  Serial.println("[SYSTEM] Device name: " + String(DEVICE_NAME));
+bool checkAndFetchConfig() {
+  Serial.println("[CONFIG] Checking configuration");
   
-  connectToWiFi();
+  if (WiFi.status() != WL_CONNECTED) {
+    return false;
+  }
+
+  HTTPClient http;
+  String url = String(serverUrl) + "/reader-config?reader_name=" + DEVICE_NAME;
   
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("[SYSTEM] WiFi connected - fetching initial configuration");
-    configFetched = checkAndFetchConfig();
-    if (configFetched) {
-      Serial.println("[SYSTEM] Initial configuration loaded successfully");
-    } else {
-      Serial.println("[SYSTEM] Failed to fetch initial configuration - using defaults");
-      forceConfigUpdate = true;
+  http.begin(url);
+  http.addHeader("X-Reader-Key", readerKey);
+  http.setTimeout(5000); // Reduced timeout
+  
+  int httpCode = http.GET();
+  
+  if (httpCode == HTTP_CODE_OK) {
+    String payload = http.getString();
+    
+    DynamicJsonDocument doc(2048);
+    DeserializationError error = deserializeJson(doc, payload);
+    
+    if (!error) {
+      unsigned long serverVersion = doc["version"] | 0;
+      
+      if (serverVersion != lastConfigVersion || forceConfigUpdate) {
+        applyConfiguration(doc);
+        lastConfigVersion = serverVersion;
+        currentConfigVersion = serverVersion;
+        forceConfigUpdate = false;
+        Serial.println("[CONFIG] Updated to version " + String(serverVersion));
+      }
     }
-  } else {
-    Serial.println("[SYSTEM] WiFi not connected - using default configuration");
+    
+    http.end();
+    return true;
   }
   
-  // Ensure we have at least one target device
+  http.end();
+  return false;
+}
+
+void applyConfiguration(DynamicJsonDocument& doc) {
+  Serial.println("[CONFIG] Applying configuration");
+  
+  // Update device statuses
+  deviceStatuses.clear();
+  JsonArray targets = doc["targets"];
+  
+  for (JsonVariant target : targets) {
+    DeviceStatus status;
+    status.name = target.as<String>();
+    status.isPresent = false;
+    status.consecutiveDetections = 0;
+    status.lastReportSent = 0;
+    status.lastDistance = -1;
+    status.lastReportedDistance = -1;
+    status.lastStatus = "";
+    status.lastReportedStatus = "";
+    status.hasBeenReported = false;
+    status.historyIndex = 0;
+    status.lastSeenTime = 0;
+    memset(status.rssiHistory, 0, sizeof(status.rssiHistory));
+    deviceStatuses.push_back(status);
+    Serial.println("[CONFIG] Added device: " + status.name);
+  }
+  
   if (deviceStatuses.empty()) {
     DeviceStatus status;
     status.name = TARGET_DEVICE_NAME;
@@ -510,56 +521,131 @@ void setup() {
     status.consecutiveDetections = 0;
     status.lastReportSent = 0;
     status.lastDistance = -1;
+    status.lastReportedDistance = -1;
     status.lastStatus = "";
+    status.lastReportedStatus = "";
+    status.hasBeenReported = false;
+    status.historyIndex = 0;
+    status.lastSeenTime = 0;
+    memset(status.rssiHistory, 0, sizeof(status.rssiHistory));
     deviceStatuses.push_back(status);
-    Serial.println("[SYSTEM] Using default target device: " + TARGET_DEVICE_NAME);
   }
   
-  Serial.println("[BLE] Initializing BLE with device name: " + String(DEVICE_NAME));
+  JsonObject config = doc["config"];
+  if (!config.isNull()) {
+    if (!config["kalman"].isNull()) {
+      kalman_P = config["kalman"]["P"] | kalman_P;
+      kalman_Q = config["kalman"]["Q"] | kalman_Q;
+      kalman_R = config["kalman"]["R"] | kalman_R;
+      kalman_initial = config["kalman"]["initial"] | kalman_initial;
+      rssiFilter.updateParameters(kalman_Q, kalman_R, kalman_P, kalman_initial);
+    }
+    
+    TX_POWER = config["txPower"] | TX_POWER;
+    MAX_DISTANCE = config["maxDistance"] | MAX_DISTANCE;
+    SAMPLE_COUNT = config["sampleCount"] | SAMPLE_COUNT;
+    SAMPLE_DELAY_MS = config["sampleDelayMs"] | SAMPLE_DELAY_MS;
+    PATH_LOSS_EXPONENT = config["pathLossExponent"] | PATH_LOSS_EXPONENT;
+  }
+}
+
+void connectToWiFi() {
+  Serial.println("[WIFI] Connecting to " + String(ssid));
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) {
+    delay(250);
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("[WIFI] Connected - IP: " + WiFi.localIP().toString());
+  } else {
+    Serial.println("[WIFI] Connection failed");
+  }
+}
+
+void setup() {
+  Serial.begin(115200); // Increased baud rate
+  Serial.println("\n[SYSTEM] ESP32 Asset Reader v2.0");
+  Serial.println("[SYSTEM] Device: " + String(DEVICE_NAME));
+  
+  connectToWiFi();
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    configFetched = checkAndFetchConfig();
+  }
+  
+  // Ensure default device if needed
+  if (deviceStatuses.empty()) {
+    DeviceStatus status;
+    status.name = TARGET_DEVICE_NAME;
+    status.isPresent = false;
+    status.consecutiveDetections = 0;
+    status.lastReportSent = 0;
+    status.lastDistance = -1;
+    status.lastReportedDistance = -1;
+    status.lastStatus = "";
+    status.lastReportedStatus = "";
+    status.hasBeenReported = false;
+    status.historyIndex = 0;
+    status.lastSeenTime = 0;
+    memset(status.rssiHistory, 0, sizeof(status.rssiHistory));
+    deviceStatuses.push_back(status);
+  }
+  
+  // Initialize BLE
   BLEDevice::init(DEVICE_NAME);
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
   pBLEScan->setActiveScan(true);
-  Serial.println("[BLE] BLE scanner initialized");
   
-  Serial.println("[SYSTEM] Setup complete - starting main loop");
+  Serial.println("[SYSTEM] Ready - Starting initial scan");
+  
+  // Don't perform initial scan here - let the main loop handle it
 }
 
 void loop() {
   static unsigned long lastVersionCheck = 0;
   static unsigned long lastNetworkCheck = 0;
+  static int wifiRetries = 0;
   
-  // Network connectivity check
+  // Network check
   if (millis() - lastNetworkCheck > NETWORK_CHECK_INTERVAL) {
-    Serial.println("[NETWORK] WiFi Status: " + String(WiFi.status()));
-    Serial.println("[NETWORK] IP Address: " + WiFi.localIP().toString());
-    Serial.println("[NETWORK] Signal Strength: " + String(WiFi.RSSI()) + " dBm");
-    Serial.println("[NETWORK] Free Heap: " + String(ESP.getFreeHeap()) + " bytes");
+    if (WiFi.status() != WL_CONNECTED) {
+      wifiRetries++;
+      if (wifiRetries <= 3) {
+        connectToWiFi();
+      }
+    } else {
+      wifiRetries = 0;
+    }
     lastNetworkCheck = millis();
   }
   
-  // Check WiFi connection status
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[WIFI] Connection lost - attempting reconnection");
-    connectToWiFi();
-  }
-  
-  // Check config version with 1-minute interval
+  // Config check
   if (millis() - lastVersionCheck > VERSION_CHECK_INTERVAL) {
-    Serial.println("[LOOP] Checking for config updates");
     if (WiFi.status() == WL_CONNECTED) {
       checkAndFetchConfig();
-    } else {
-      Serial.println("[LOOP] Skipping config check - WiFi not connected");
     }
     lastVersionCheck = millis();
   }
   
-  // Scan all devices
-  Serial.println("[LOOP] Starting device scan cycle");
+  // Main scanning
   scanAllDevices();
   
-  Serial.println("[LOOP] Scan cycle complete - waiting 1 second");
-  delay(1000);
+  // Adaptive delay based on device state
+  bool anyDevicePresent = false;
+  for (auto& device : deviceStatuses) {
+    if (device.isPresent) {
+      anyDevicePresent = true;
+      break;
+    }
+  }
+  
+  // Shorter delay when devices are present
+  delay(anyDevicePresent ? 1000 : 2000);
 }
