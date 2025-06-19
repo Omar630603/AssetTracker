@@ -14,17 +14,18 @@ const char* readerKey = "ESP32_READER_KEY";
 // === Default Configuration ===
 #define DEVICE_NAME "Asset_Reader_01"
 String TARGET_DEVICE_NAME = "Asset_Tag_01";
-float TX_POWER = -52;
-float PATH_LOSS_EXPONENT = 2.5;
+float TX_POWER = -68;  // Calibrated for typical ESP32 at 1 meter
+float PATH_LOSS_EXPONENT = 2.5;  // Environmental factor (2.0 for free space, higher for obstacles)
 float MAX_DISTANCE = 5.0;
 int SAMPLE_COUNT = 10;
 int SAMPLE_DELAY_MS = 100;
+bool CALIBRATION_MODE = false;  // Set to true to skip server and calibrate
 
-// Enhanced Kalman filter parameters with adaptive noise
+// Enhanced Kalman filter parameters - back to original working values
 float kalman_P = 1.0;
-float kalman_Q = 0.001;  // Reduced process noise for stability
-float kalman_R = 0.5;    // Reduced measurement noise
-float kalman_initial = -70.0;
+float kalman_Q = 0.1;   // Original value that worked
+float kalman_R = 2.0;    // Original value that worked  
+float kalman_initial = -60.0;
 
 // === Smart Polling Variables ===
 bool configFetched = false;
@@ -69,8 +70,7 @@ public:
     P = estimatedError;
     X = initialValue;
     lastMeasurement = initialValue;
-    innovationSum = 0;
-    innovationCount = 0;
+    initialized = false;
   }
 
   void updateParameters(float processNoise, float measurementNoise, float estimatedError, float initialValue) {
@@ -78,36 +78,44 @@ public:
     R = measurementNoise;
     P = estimatedError;
     X = initialValue;
+    initialized = false;
     Serial.println("[KALMAN] Parameters updated - Q:" + String(Q) + " R:" + String(R) + " P:" + String(P) + " Initial:" + String(X));
   }
 
   float update(float measurement) {
-    // Adaptive noise based on measurement change
+    // Initialize with first measurement
+    if (!initialized) {
+      X = measurement;
+      lastMeasurement = measurement;
+      initialized = true;
+      return X;
+    }
+    
+    // Check for large jumps and adapt
     float measurementDelta = abs(measurement - lastMeasurement);
     float adaptiveR = R;
+    float adaptiveQ = Q;
     
-    // If measurement is jumping around a lot, increase measurement noise
-    if (measurementDelta > 10.0) {
-      adaptiveR = R * 3.0;
-    } else if (measurementDelta > 5.0) {
-      adaptiveR = R * 1.5;
+    // If measurement is jumping around a lot, trust it less
+    if (measurementDelta > 15.0) {
+      adaptiveR = R * 5.0;  // Much less trust in jumpy measurements
+      adaptiveQ = Q * 2.0;  // Allow faster state changes
+    } else if (measurementDelta > 10.0) {
+      adaptiveR = R * 2.0;
+      adaptiveQ = Q * 1.5;
     }
     
     // Prediction
-    P = P + Q;
+    P = P + adaptiveQ;
     
     // Innovation
     float innovation = measurement - X;
     
-    // Update innovation statistics for convergence detection
-    innovationSum += abs(innovation);
-    innovationCount++;
-    
-    // Kalman gain with adaptive measurement noise
+    // Kalman gain
     K = P / (P + adaptiveR);
     
-    // Limit Kalman gain to prevent overshooting
-    K = constrain(K, 0, 0.5);
+    // Limit Kalman gain for stability
+    K = constrain(K, 0, 0.8);  // Allow up to 0.8 for faster convergence
     
     // Update estimate
     X = X + K * innovation;
@@ -115,21 +123,10 @@ public:
     // Update error covariance
     P = (1 - K) * P;
     
-    lastMeasurement = measurement;
+    // Ensure P doesn't get too small
+    P = max(P, 0.1f);
     
-    // Check for convergence and reduce gain if stable
-    if (innovationCount > 10) {
-      float avgInnovation = innovationSum / innovationCount;
-      if (avgInnovation < 2.0) {
-        // System is stable, reduce process noise
-        Q = max(Q * 0.9, 0.0001);
-      }
-      // Reset statistics periodically
-      if (innovationCount > 20) {
-        innovationSum = 0;
-        innovationCount = 0;
-      }
-    }
+    lastMeasurement = measurement;
     
     return X;
   }
@@ -138,15 +135,13 @@ public:
     X = initialValue;
     P = 1.0;
     lastMeasurement = initialValue;
-    innovationSum = 0;
-    innovationCount = 0;
+    initialized = true;
   }
 
 private:
   float Q, R, P, K, X;
   float lastMeasurement;
-  float innovationSum;
-  int innovationCount;
+  bool initialized;
 };
 
 AdaptiveKalmanFilter rssiFilter(kalman_Q, kalman_R, kalman_P, kalman_initial);
@@ -154,22 +149,16 @@ AdaptiveKalmanFilter rssiFilter(kalman_Q, kalman_R, kalman_P, kalman_initial);
 float calculateDistance(float rssi) {
   if (rssi == 0) return -1.0;
   
-  // Apply different formulas for different RSSI ranges
-  float distance;
+  // Simple path loss formula: RSSI = TxPower - 10 * n * log10(distance)
+  // Rearranged: distance = 10^((TxPower - RSSI) / (10 * n))
   
-  if (rssi > -50) {
-    // Very close range - use linear approximation
-    distance = (rssi + 40) / 20.0;
-    distance = max(distance, 0.1f);  // Added 'f' to make it a float literal
-  } else if (rssi > -70) {
-    // Medium range - standard path loss
-    float ratio_db = TX_POWER - rssi;
-    distance = pow(10, ratio_db / (10 * PATH_LOSS_EXPONENT));
-  } else {
-    // Far range - use higher path loss exponent
-    float ratio_db = TX_POWER - rssi;
-    distance = pow(10, ratio_db / (10 * (PATH_LOSS_EXPONENT + 0.5)));
-  }
+  float ratio_db = TX_POWER - rssi;
+  float ratio_linear = ratio_db / (10.0 * PATH_LOSS_EXPONENT);
+  float distance = pow(10, ratio_linear);
+  
+  // Sanity checks
+  if (distance < 0.01) distance = 0.01;
+  if (distance > 100) distance = 100;
   
   return distance;
 }
@@ -384,6 +373,12 @@ void scanAllDevices() {
       filteredRssi = rssiFilter.update(rawRssi);
       filteredDistance = calculateDistance(filteredRssi);
       
+      // Debug output for calibration
+      if (!CALIBRATION_MODE) {
+        Serial.println("[DEBUG] " + deviceStatus.name + " Raw RSSI:" + String(rawRssi, 1) + 
+                      " Filtered:" + String(filteredRssi, 1) + " Distance:" + String(filteredDistance, 2) + "m");
+      }
+      
       deviceStatus.lastSeenTime = millis();
       deviceStatus.lastDistance = filteredDistance;
       
@@ -572,14 +567,16 @@ void setup() {
   Serial.println("\n[SYSTEM] ESP32 Asset Reader v2.0");
   Serial.println("[SYSTEM] Device: " + String(DEVICE_NAME));
   
-  connectToWiFi();
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    configFetched = checkAndFetchConfig();
-  }
-  
-  // Ensure default device if needed
-  if (deviceStatuses.empty()) {
+  if (CALIBRATION_MODE) {
+    Serial.println("\n================== CALIBRATION MODE ==================");
+    Serial.println("Place tag at EXACTLY 1 meter from reader");
+    Serial.println("Current TX_POWER: " + String(TX_POWER));
+    Serial.println("Look for 'Avg RSSI at 1m' in the output");
+    Serial.println("Update TX_POWER to match that value");
+    Serial.println("Then set CALIBRATION_MODE = false");
+    Serial.println("=====================================================\n");
+    
+    // In calibration mode, skip WiFi and use default target
     DeviceStatus status;
     status.name = TARGET_DEVICE_NAME;
     status.isPresent = false;
@@ -594,6 +591,37 @@ void setup() {
     status.lastSeenTime = 0;
     memset(status.rssiHistory, 0, sizeof(status.rssiHistory));
     deviceStatuses.push_back(status);
+  } else {
+    // Normal mode - connect to WiFi and fetch config
+    connectToWiFi();
+    
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("[CONFIG] Fetching initial configuration...");
+      configFetched = checkAndFetchConfig();
+      if (configFetched) {
+        Serial.println("[CONFIG] Initial configuration loaded");
+      } else {
+        Serial.println("[CONFIG] Using default configuration");
+      }
+    }
+    
+    // Ensure default device if needed
+    if (deviceStatuses.empty()) {
+      DeviceStatus status;
+      status.name = TARGET_DEVICE_NAME;
+      status.isPresent = false;
+      status.consecutiveDetections = 0;
+      status.lastReportSent = 0;
+      status.lastDistance = -1;
+      status.lastReportedDistance = -1;
+      status.lastStatus = "";
+      status.lastReportedStatus = "";
+      status.hasBeenReported = false;
+      status.historyIndex = 0;
+      status.lastSeenTime = 0;
+      memset(status.rssiHistory, 0, sizeof(status.rssiHistory));
+      deviceStatuses.push_back(status);
+    }
   }
   
   // Initialize BLE
@@ -603,9 +631,7 @@ void setup() {
   pBLEScan->setWindow(99);
   pBLEScan->setActiveScan(true);
   
-  Serial.println("[SYSTEM] Ready - Starting initial scan");
-  
-  // Don't perform initial scan here - let the main loop handle it
+  Serial.println("[SYSTEM] Ready\n");
 }
 
 void loop() {
@@ -613,25 +639,63 @@ void loop() {
   static unsigned long lastNetworkCheck = 0;
   static int wifiRetries = 0;
   
-  // Network check
-  if (millis() - lastNetworkCheck > NETWORK_CHECK_INTERVAL) {
-    if (WiFi.status() != WL_CONNECTED) {
-      wifiRetries++;
-      if (wifiRetries <= 3) {
-        connectToWiFi();
+  if (!CALIBRATION_MODE) {
+    // Network check
+    if (millis() - lastNetworkCheck > NETWORK_CHECK_INTERVAL) {
+      if (WiFi.status() != WL_CONNECTED) {
+        wifiRetries++;
+        if (wifiRetries <= 3) {
+          Serial.println("[WIFI] Connection lost - attempting reconnect");
+          connectToWiFi();
+        }
+      } else {
+        wifiRetries = 0;
       }
-    } else {
-      wifiRetries = 0;
+      lastNetworkCheck = millis();
     }
-    lastNetworkCheck = millis();
-  }
-  
-  // Config check
-  if (millis() - lastVersionCheck > VERSION_CHECK_INTERVAL) {
-    if (WiFi.status() == WL_CONNECTED) {
-      checkAndFetchConfig();
+    
+    // Config check - every 60 seconds
+    if (millis() - lastVersionCheck > VERSION_CHECK_INTERVAL) {
+      Serial.println("[CONFIG] Checking for updates (60s interval)");
+      if (WiFi.status() == WL_CONNECTED) {
+        if (checkAndFetchConfig()) {
+          Serial.println("[CONFIG] Check complete");
+        } else {
+          Serial.println("[CONFIG] Check failed");
+        }
+      } else {
+        Serial.println("[CONFIG] Skipped - no WiFi");
+      }
+      lastVersionCheck = millis();
     }
-    lastVersionCheck = millis();
+  } else {
+    // Calibration mode - show running average
+    static float rssiSum = 0;
+    static int rssiCount = 0;
+    
+    BLEScanResults* foundDevices = pBLEScan->start(1, false);
+    
+    for (int i = 0; i < foundDevices->getCount(); i++) {
+      BLEAdvertisedDevice device = foundDevices->getDevice(i);
+      if (device.getName() == TARGET_DEVICE_NAME) {
+        float rssi = device.getRSSI();
+        rssiSum += rssi;
+        rssiCount++;
+        
+        if (rssiCount % 10 == 0) {
+          float avgRssi = rssiSum / rssiCount;
+          Serial.println("\n[CALIBRATION] Samples: " + String(rssiCount));
+          Serial.println("[CALIBRATION] Avg RSSI at 1m: " + String(avgRssi, 1));
+          Serial.println("[CALIBRATION] Set TX_POWER = " + String(avgRssi, 0));
+          Serial.println("[CALIBRATION] Current distance calc: " + 
+                        String(calculateDistance(avgRssi), 2) + "m\n");
+        }
+      }
+    }
+    
+    pBLEScan->clearResults();
+    delay(500);
+    return;
   }
   
   // Main scanning

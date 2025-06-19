@@ -18,17 +18,17 @@ class Reader extends Model
     ];
 
     public static array $defaultConfig = [
-        'txPower' => -52,
-        'maxDistance' => 5.0,
+        'kalman' => [
+            'P' => 1,
+            'Q' => 0.1,
+            'R' => 2,
+            'initial' => -60
+        ],
+        'txPower' => -68,
+        'maxDistance' => 5,
         'sampleCount' => 10,
         'sampleDelayMs' => 100,
-        'pathLossExponent' => 2.5,
-        'kalman' => [
-            'Q' => 0.001,
-            'R' => 0.5,
-            'P' => 1.0,
-            'initial' => -70.0
-        ]
+        'pathLossExponent' => 2.5
     ];
 
     public function location()

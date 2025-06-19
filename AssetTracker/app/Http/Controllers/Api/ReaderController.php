@@ -66,19 +66,7 @@ class ReaderController extends Controller
         return response()->json([
             'name' => $reader->name,
             'targets' => $targets,
-            'config' => $reader->config ?? [
-                'txPower' => -52,
-                'maxDistance' => 5.0,
-                'sampleCount' => 10,
-                'sampleDelayMs' => 100,
-                'pathLossExponent' => 2.5,
-                'kalman' => [
-                    'Q' => 0.001,
-                    'R' => 0.5,
-                    'P' => 1.0,
-                    'initial' => -70.0
-                ]
-            ],
+            'config' => $reader->config ?? Reader::$defaultConfig,
             'version' => $version,
             'last_updated' => $reader->updated_at->toISOString(),
         ]);
