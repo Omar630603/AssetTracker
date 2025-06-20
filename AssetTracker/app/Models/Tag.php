@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Tag extends Model
 {
-    //
+    protected $fillable = ['name'];
 
     public function readers(): BelongsToMany
     {

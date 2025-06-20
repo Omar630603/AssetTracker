@@ -35,7 +35,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::resource('locations', LocationController::class)->except(['index']);
         Route::delete('locations/destroy/bulk', [LocationController::class, 'bulkDestroy'])->name('locations.bulk-destroy');
 
-        // Route::resource('tags', TagController::class)->except(['index']);
+        Route::resource('tags', TagController::class)->except(['index']);
+        Route::delete('tags/destroy/bulk', [TagController::class, 'bulkDestroy'])->name('tags.bulk-destroy');
 
         Route::resource('readers', ReaderController::class)->except(['index']);
         Route::delete('readers/destroy/bulk', [ReaderController::class, 'bulkDestroy'])->name('readers.bulk-destroy');
