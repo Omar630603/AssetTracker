@@ -7,38 +7,32 @@ import { AlertCircle, PlusCircle, Trash2 } from 'lucide-react';
 import AppLayout from '@/layouts/app-layout';
 import { Button } from '@/components/ui/button';
 import { DataTable } from '@/components/data-table';
-import { Reader, columns } from '@/components/data-table/columns/readers';
+import { Location, columns } from '@/components/data-table/columns/locations';
 import { type BreadcrumbItem } from '@/types';
 import { PopupModal } from '@/components/popup-modal';
 import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Combobox } from '@/components/combobox';
-import { JsonViewer } from '@/components/json-viewer';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Readers', href: '/readers' },
+    { title: 'Locations', href: '/locations' },
 ];
 
-interface ReadersPageProps {
-    readers: Reader[];
-    locations: { id: string; name: string }[];
-    defaultConfig: any;
+interface LocationsPageProps {
+    locations: Location[];
 }
 
-export default function ReadersIndex({ readers, locations = [], defaultConfig }: ReadersPageProps) {
-    const [readersData, setReadersData] = useState<Reader[]>(readers);
+export default function LocationsIndex({ locations }: LocationsPageProps) {
+    const [locationsData, setLocationsData] = useState<Location[]>(locations);
     const [openAddModal, setOpenAddModal] = useState(false);
     const [openDeleteSelectedModal, setOpenDeleteSelectedModal] = useState(false);
-    const [configJson, setConfigJson] = useState('');
     const [rowSelection, setRowSelection] = useState({});
-    const [selectedReaderIds, setSelectedReaderIds] = useState<string[]>([]);
+    const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
 
     const { data, setData, post, processing, errors, reset } = useForm({
         name: '',
-        location_id: '',
-        config: defaultConfig
+        floor: '',
     });
 
     const { delete: deleteSelected, setData: setDeleteData, processing: deleteProcessing } = useForm({
@@ -46,47 +40,30 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
     });
 
     useEffect(() => {
-        setReadersData(readers);
-    }, [readers]);
-
-    useEffect(() => {
-        setConfigJson(JSON.stringify(data.config, null, 2));
-    }, [data.config]);
+        setLocationsData(locations);
+    }, [locations]);
 
     useEffect(() => {
         const selectedIds = Object.keys(rowSelection).map(index => {
             const numericIndex = parseInt(index);
-            return readersData[numericIndex]?.id;
+            return locationsData[numericIndex]?.id;
         }).filter(Boolean);
 
-        setSelectedReaderIds(selectedIds);
+        setSelectedLocationIds(selectedIds);
         setDeleteData('ids', selectedIds);
-    }, [rowSelection, readersData]);
-
-    const handleConfigUpdate = (jsonString: string) => {
-        try {
-            const parsed = JSON.parse(jsonString);
-            setData('config', parsed);
-        } catch (e) {
-            // Don't update the form data if invalid JSON
-        }
-        setConfigJson(jsonString);
-    };
+    }, [rowSelection, locationsData]);
 
     const handleSubmit = () => {
         try {
-            const config = JSON.parse(configJson);
-            setData('config', config);
-
-            post('/readers', {
+            post('/locations', {
                 onSuccess: () => {
-                    toast.success('Reader added successfully');
+                    toast.success('Location added successfully');
                     setOpenAddModal(false);
                     reset();
                 },
                 onError: (errors) => {
                     console.error(errors);
-                    toast.error('Failed to add reader');
+                    toast.error('Failed to add location');
                 },
                 onFinish: () => {
                     // Optional: reset any loading states here
@@ -98,43 +75,37 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
     };
 
     const handleDeleteSelected = () => {
-        if (selectedReaderIds.length === 0) return;
+        if (selectedLocationIds.length === 0) return;
 
-        deleteSelected(route('readers.bulk-destroy'), {
+        deleteSelected(route('locations.bulk-destroy'), {
             onSuccess: () => {
-                toast.success(`${selectedReaderIds.length} reader(s) deleted successfully`);
+                toast.success(`${selectedLocationIds.length} location(s) deleted successfully`);
                 setOpenDeleteSelectedModal(false);
                 setRowSelection({});
             },
             onError: () => {
-                toast.error('Failed to delete selected readers');
+                toast.error('Failed to delete selected locations');
             }
         });
     };
 
     const resetForm = () => {
         reset();
-        setConfigJson(JSON.stringify(defaultConfig, null, 2));
         setOpenAddModal(false);
     };
-
-    const locationOptions = locations.map(loc => ({
-        value: loc.id,
-        label: loc.name
-    }));
 
     const hasSelections = Object.keys(rowSelection).length > 0;
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Readers Management" />
+            <Head title="Locations Management" />
 
             <div className="container mx-auto p-4">
                 <div className="flex items-center justify-between mb-6">
                     <div>
-                        <h1 className="text-3xl font-bold tracking-tight">Readers</h1>
+                        <h1 className="text-3xl font-bold tracking-tight">Locations</h1>
                         <p className="text-sm text-muted-foreground mt-1">
-                            Manage your asset tracking readers and their configurations.
+                            Manage your readers' locations and their configurations.
                         </p>
                     </div>
 
@@ -151,16 +122,16 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
 
                         <Button onClick={() => setOpenAddModal(true)}>
                             <PlusCircle className="h-4 w-4 mr-2" />
-                            <span>Add Reader</span>
+                            <span>Add Location</span>
                         </Button>
                     </div>
                 </div>
 
                 <DataTable
                     columns={columns}
-                    data={readersData}
-                    searchColumn={["name", "location"]}
-                    searchPlaceholder="Search readers..."
+                    data={locationsData}
+                    searchColumn={["name", "floor"]}
+                    searchPlaceholder="Search locations..."
                     onRowSelectionChange={setRowSelection}
                     state={{ rowSelection }}
                 />
@@ -169,10 +140,10 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
                     isOpen={openAddModal}
                     onClose={resetForm}
                     onPrimaryAction={handleSubmit}
-                    title="Add New Reader"
+                    title="Add New Location"
                     variant="confirm"
                     size="lg"
-                    primaryActionLabel="Add Reader"
+                    primaryActionLabel="Add Location"
                     isLoading={processing}
                 >
                     <div className="space-y-4">
@@ -185,29 +156,14 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
                             />
                             {errors.name && <p className="text-sm text-red-500">{errors.name}</p>}
                         </div>
-
                         <div>
-                            <Label htmlFor="location_id">Location</Label>
-                            <Combobox
-                                items={locationOptions}
-                                value={data.location_id}
-                                onSelect={(value) => setData('location_id', value)}
-                                placeholder="Select location"
-                                emptyMessage="No locations found"
-                                searchPlaceholder="Search locations..."
+                            <Label htmlFor="floor">Floor</Label>
+                            <Input
+                                id="floor"
+                                value={data.floor}
+                                onChange={(e) => setData('floor', e.target.value)}
                             />
-                            {errors.location_id && <p className="text-sm text-red-500">{errors.location_id}</p>}
-                        </div>
-
-                        <div>
-                            <Label htmlFor="config">Configuration</Label>
-                            <JsonViewer
-                                data={configJson}
-                                editable={true}
-                                onChange={handleConfigUpdate}
-                                height="64"
-                            />
-                            {errors.config && <p className="text-sm text-red-500">{errors.config}</p>}
+                            {errors.floor && <p className="text-sm text-red-500">{errors.floor}</p>}
                         </div>
                     </div>
                 </PopupModal>
@@ -216,7 +172,7 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
                     isOpen={openDeleteSelectedModal}
                     onClose={() => setOpenDeleteSelectedModal(false)}
                     onPrimaryAction={handleDeleteSelected}
-                    title="Delete Selected Readers"
+                    title="Delete Selected Locations"
                     variant="confirm"
                     size="md"
                     primaryActionLabel="Delete Selected"
@@ -226,7 +182,7 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
                         <AlertCircle className="h-4 w-4" />
                         <AlertTitle>Warning</AlertTitle>
                         <AlertDescription>
-                            Are you sure you want to delete {selectedReaderIds.length} selected reader(s)?
+                            Are you sure you want to delete {selectedLocationIds.length} selected location(s)?
                             This action cannot be undone.
                         </AlertDescription>
                     </Alert>

@@ -33,13 +33,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Admin-only routes (full CRUD)
     Route::middleware('role:admin')->group(function () {
         Route::resource('locations', LocationController::class)->except(['index']);
+        Route::delete('locations/destroy/bulk', [LocationController::class, 'bulkDestroy'])->name('locations.bulk-destroy');
 
-        Route::resource('tags', TagController::class)->except(['index']);
+        // Route::resource('tags', TagController::class)->except(['index']);
 
         Route::resource('readers', ReaderController::class)->except(['index']);
         Route::delete('readers/destroy/bulk', [ReaderController::class, 'bulkDestroy'])->name('readers.bulk-destroy');
 
-        Route::resource('assets', AssetController::class)->except(['index']);
+        // Route::resource('assets', AssetController::class)->except(['index']);
         // Route::resource('users', UserController::class);
         // Route::resource('roles', RoleController::class);
         // Route::resource('permissions', PermissionController::class);

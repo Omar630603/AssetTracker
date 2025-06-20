@@ -30,7 +30,7 @@ class ReaderController extends Controller
 
         $locations = Location::select('id', 'name')->get();
 
-        return inertia('Readers/Index', [
+        return inertia('Readers/index', [
             'readers' => $readers,
             'locations' => $locations,
             'defaultConfig' => Reader::$defaultConfig,
