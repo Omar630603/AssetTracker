@@ -5,6 +5,7 @@
 #include <BLEUtils.h>
 #include <BLEScan.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <mbedtls/aes.h>
@@ -15,7 +16,7 @@
 // Network Configuration
 const char* ssid = "POCO X6 5G";
 const char* password = "12345678";
-const char* serverUrl = "http://150.230.8.22/api"; 
+const char* serverUrl = "https://150.230.8.22/api"; 
 const char* readerKey = "ESP32_READER_KEY";
 const char* SECRET_KEY = "ESP32_TAG_SECRET_KEY";
 #define DEVICE_NAME "Asset_Reader_01"
@@ -181,15 +182,17 @@ bool sendLocationLog(const String& deviceName, float distance, const String& typ
     Serial.println("[HTTP] Not connected to WiFi, cannot send log!");
     return false;
   }
-
+  size_t before = ESP.getFreeHeap();
   Serial.printf("[HTTP] Reporting %s: %s, Status: %s, Dist: %.2fm\n", type.c_str(), deviceName.c_str(), status.c_str(), distance);
-  
+
+  WiFiClientSecure client;
+  client.setInsecure();
   HTTPClient http;
-  http.begin(String(serverUrl) + "/reader-log");
+  http.begin(client, String(serverUrl) + "/reader-log");
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Reader-Key", readerKey);
   http.setTimeout(5000);
-  
+
   StaticJsonDocument<256> doc;
   doc["reader_name"] = DEVICE_NAME;
   doc["device_name"] = deviceName;
@@ -199,19 +202,18 @@ bool sendLocationLog(const String& deviceName, float distance, const String& typ
   doc["authenticated"] = auth;
   if (rawRssi != 0) doc["rssi"] = round(rawRssi * 10) / 10.0;
   if (kalmanRssi != 0) doc["kalman_rssi"] = round(kalmanRssi * 100) / 100.0;
-  
+
   String json;
   serializeJson(doc, json);
-  
+
   int code = http.POST(json);
-  bool success = (code >= 200 && code < 300);
-  
-  Serial.printf("[LOG] %s %s: %s (HTTP %d)\n", 
-                type.c_str(), deviceName.c_str(), 
-                success ? "sent" : "failed", code);
-  
+  String response = http.getString();
   http.end();
-  return success;
+  client.stop();
+  Serial.printf("[HTTP DEBUG] POST code: %d, error: %s\n", code, http.errorToString(code).c_str());
+  Serial.printf("[LOG] %s %s: %s (HTTP %d)\n", type.c_str(), deviceName.c_str(), (code >= 200 && code < 300) ? "sent" : "failed", code);
+  Serial.printf("Heap after sendLocationLog: %d\n", ESP.getFreeHeap());
+  return (code >= 200 && code < 300);
 }
 
 // Check if device status needs reporting
@@ -370,21 +372,29 @@ bool fetchConfig() {
     Serial.println("[CONFIG] Not connected to WiFi!");
     return false;
   }
+  
+  size_t before = ESP.getFreeHeap();
+
+  WiFiClientSecure client;
+  client.setInsecure();
   HTTPClient http;
-  http.begin(String(serverUrl) + "/reader-config?reader_name=" + DEVICE_NAME);
+  http.begin(client, String(serverUrl) + "/reader-config?reader_name=" + DEVICE_NAME);
   http.addHeader("X-Reader-Key", readerKey);
   http.setTimeout(5000);
 
   int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    Serial.printf("[CONFIG] Failed! HTTP %d\n", code);
-    http.end();
-    return false;
-  }
+  String payload = http.getString(); // Save to variable before .end()
+  http.end();
+  client.stop();
+  Serial.printf("[CONFIG] HTTP code: %d\n", code);
+  Serial.println("[CONFIG] Response: " + payload);
+  Serial.printf("Heap after fetchConfig: %d\n", ESP.getFreeHeap());
+  if (code != HTTP_CODE_OK) return false;
 
   DynamicJsonDocument doc(2048);
-  DeserializationError error = deserializeJson(doc, http.getString());
+  DeserializationError error = deserializeJson(doc, payload);
   http.end();
+  client.stop();
 
   if (error) {
     Serial.println("[CONFIG] JSON Parse Error!");
