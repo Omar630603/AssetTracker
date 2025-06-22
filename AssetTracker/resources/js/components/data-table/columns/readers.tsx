@@ -19,6 +19,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner"
 import { useForm } from "@inertiajs/react";
 import { Badge } from "@/components/ui/badge";
+import { JsonViewer } from "@/components/json-viewer";
 
 export interface Reader {
     id: string,
@@ -146,7 +147,7 @@ export const columns: ColumnDef<Reader>[] = [
             <DataTableColumnHeader column={column} title="Configuration" />
         ),
         cell: ({ row }) => {
-            const config = row.getValue("config");
+            const config = row.getValue("config") as string;
             const readerName = row.getValue("name") as string;
             const [openConfigModal, setOpenConfigModal] = useState(false);
 
@@ -168,9 +169,12 @@ export const columns: ColumnDef<Reader>[] = [
                         size="lg"
                     >
                         <div className="overflow-auto max-h-[60vh]">
-                            <pre className="text-sm bg-muted p-4 rounded-lg">
-                                {JSON.stringify(config, null, 2)}
-                            </pre>
+                            <JsonViewer
+                                data={config}
+                                editable={false}
+                                height="64"
+                                className="mt-1"
+                            />
                         </div>
                     </PopupModal>
                 </>

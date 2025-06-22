@@ -46,8 +46,7 @@ export default function EditReader({ reader, locations = [], tags = [], assetNam
     useEffect(() => {
         try {
             if (typeof data.config === 'string') {
-                const parsed = JSON.parse(data.config);
-                setConfigJson(parsed);
+                setConfigJson(data.config);
             } else {
                 setConfigJson(JSON.stringify(data.config, null, 2));
             }
