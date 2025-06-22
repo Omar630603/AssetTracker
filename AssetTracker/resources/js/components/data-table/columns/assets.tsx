@@ -107,11 +107,13 @@ export const columns: ColumnDef<Asset>[] = [
                         setDeleteModal(false);
                         toast.success("Deleted", {
                             description: `Asset "${asset.name}" has been deleted.`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
                     onError: () => {
                         toast.error("Error", {
                             description: `Failed to delete asset "${asset.name}".`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
                 });

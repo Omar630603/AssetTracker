@@ -82,11 +82,13 @@ export const columns: ColumnDef<Location>[] = [
                         setDeleteModal(false);
                         toast.success("Deleted", {
                             description: `Location "${location.name}" has been deleted.`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
                     onError: () => {
                         toast.error("Error", {
                             description: `Failed to delete location "${location.name}".`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
                 });

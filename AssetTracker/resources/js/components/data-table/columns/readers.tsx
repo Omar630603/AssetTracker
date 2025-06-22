@@ -196,11 +196,13 @@ export const columns: ColumnDef<Reader>[] = [
                         setDeleteModal(false);
                         toast.success("Deleted", {
                             description: `Reader "${reader.name}" has been deleted.`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
                     onError: () => {
                         toast.error("Error", {
                             description: `Failed to delete reader "${reader.name}".`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
                 });

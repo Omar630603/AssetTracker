@@ -20,7 +20,7 @@ class ReaderSeeder extends Seeder
         Reader::create([
             'location_id' => $location->id,
             'name' => 'Asset_Reader_01',
-            'config' => json_encode(Reader::$defaultConfig)
+            'config' => Reader::$defaultConfig
         ]);
     }
 }

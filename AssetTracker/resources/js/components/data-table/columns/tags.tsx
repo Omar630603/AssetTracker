@@ -82,11 +82,13 @@ export const columns: ColumnDef<Tag>[] = [
                         setDeleteModal(false);
                         toast.success("Deleted", {
                             description: `Tag "${tag.name}" has been deleted.`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
                     onError: () => {
                         toast.error("Error", {
                             description: `Failed to delete tag "${tag.name}".`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
                 });
