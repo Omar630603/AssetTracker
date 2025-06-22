@@ -9,13 +9,10 @@ import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Location } from '@/components/data-table/columns/locations';
 
 interface EditLocationPageProps {
-    location: {
-        id: string;
-        name: string;
-        floor?: string;
-    };
+    location: Location;
 }
 
 export default function EditLocation({ location }: EditLocationPageProps) {
@@ -44,7 +41,7 @@ export default function EditLocation({ location }: EditLocationPageProps) {
                 },
             });
         } catch (e) {
-            toast.error('Invalid JSON configuration');
+            toast.error('Failed to make request');
         }
     };
 

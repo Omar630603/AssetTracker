@@ -9,12 +9,10 @@ import { toast } from 'sonner';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tag } from '@/components/data-table/columns/tags';
 
 interface EditTagPageProps {
-    tag: {
-        id: string;
-        name: string;
-    };
+    tag: Tag;
 }
 
 export default function EditTag({ tag }: EditTagPageProps) {
@@ -42,7 +40,7 @@ export default function EditTag({ tag }: EditTagPageProps) {
                 },
             });
         } catch (e) {
-            toast.error('Invalid JSON configuration');
+            toast.error('Failed to make request');
         }
     };
 

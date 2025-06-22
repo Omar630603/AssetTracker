@@ -15,6 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('location_id')->constrained()->onDelete('cascade');
             $table->string('name')->unique();
+            $table->enum('discovery_mode', ['pattern', 'explicit'])->default('explicit');
             $table->json('config')->nullable();
             $table->timestamps();
         });

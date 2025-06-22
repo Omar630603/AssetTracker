@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { ColumnDef } from "@tanstack/react-table"
-import { MoreHorizontal, Eye, AlertCircle } from "lucide-react"
+import { MoreHorizontal, AlertCircle, Eye } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import {
@@ -15,106 +15,25 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { DataTableColumnHeader } from "@/components/data-table"
 import { PopupModal } from "@/components/popup-modal"
-import { JsonViewer } from "@/components/json-viewer"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner"
 import { useForm } from "@inertiajs/react";
+import { Badge } from "@/components/ui/badge";
 
 export interface Reader {
-    id: string
-    name: string
-    location: string
-    targets: string
-    config?: string
-    tags?: Tag[]
+    id: string,
+    name: string,
+    location: string,
+    location_id?: string,
+    discovery_mode?: 'pattern' | 'explicit',
+    config: any,
+    tags?: {
+        id: string,
+        name: string,
+        asset_name: string,
+    }[],
+    tag_ids?: string[],
 }
-
-interface Tag {
-    id: string
-    name: string
-    asset_name: string
-}
-
-const TagsList: React.FC<{ tags?: Tag[], readerName?: string }> = ({ tags, readerName }) => {
-    const [openTagsModal, setOpenTagsModal] = useState(false);
-
-    if (!tags || tags.length === 0) {
-        return <span className="text-muted-foreground">None</span>;
-    }
-
-    return (
-        <>
-            <div className="flex items-center space-x-2 cursor-pointer">
-                <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 p-0 px-1"
-                    onClick={() => setOpenTagsModal(true)}
-                >
-                    <Eye className="h-3 w-3 mr-1" />
-                    <span className="text-xs">View {tags.length} Tag(s)</span>
-                </Button>
-            </div>
-
-            <PopupModal
-                isOpen={openTagsModal}
-                onClose={() => setOpenTagsModal(false)}
-                title={`Target Tags${readerName ? ` - ${readerName}` : ''}`}
-                description="Associated tags and assets"
-                variant="view"
-                size="md"
-            >
-                <div className="space-y-2">
-                    {tags.map((tag) => (
-                        <div key={tag.id} className="flex items-center p-2 border rounded">
-                            <div>
-                                <div className="font-medium">{tag.name}</div>
-                                <div className="text-sm text-muted-foreground">
-                                    {tag.asset_name}
-                                </div>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </PopupModal>
-        </>
-    );
-};
-
-const JsonConfigPreview: React.FC<{ data: string, readerName?: string }> = ({ data, readerName }) => {
-    const [openConfigJsonModal, setOpenConfigJsonModal] = useState(false);
-
-    try {
-        return (
-            <>
-                <div className="flex items-center space-x-2 cursor-pointer">
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 p-0 px-1"
-                        onClick={() => setOpenConfigJsonModal(true)}
-                    >
-                        <Eye className="h-3 w-3 mr-1" />
-                        <span className="text-xs">View</span>
-                    </Button>
-                </div>
-
-                <PopupModal
-                    isOpen={openConfigJsonModal}
-                    onClose={() => setOpenConfigJsonModal(false)}
-                    title={`Configuration Details${readerName ? ` - ${readerName}` : ''}`}
-                    description="Full configuration properties"
-                    variant="view"
-                    size="md"
-                >
-                    <JsonViewer data={data} />
-                </PopupModal>
-            </>
-        );
-    } catch (e) {
-        return <div className="text-xs text-red-500">Invalid JSON</div>;
-    }
-};
 
 export const columns: ColumnDef<Reader>[] = [
     {
@@ -153,21 +72,70 @@ export const columns: ColumnDef<Reader>[] = [
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Location" />
         ),
+        cell: ({ row }) => {
+            const location = row.getValue("location") as string;
+            return <span className="text-muted-foreground">{location || "N/A"}</span>;
+        },
     },
 
     {
-        accessorKey: "targets",
+        accessorKey: "discovery_mode",
         header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="Targets" />
+            <DataTableColumnHeader column={column} title="Discovery Mode" />
         ),
         cell: ({ row }) => {
+            const mode = row.getValue("discovery_mode") as string;
+            const reader = row.original;
+            const tags = reader.tags || [];
             const readerName = row.getValue("name") as string;
-            const tags = row.original.tags;
+            const [openTagsModal, setOpenTagsModal] = useState(false);
 
             return (
-                <div className="flex items-center">
-                    {tags && <TagsList tags={tags} readerName={readerName} />}
-                </div>
+                <>
+                    <Badge
+                        variant={mode === 'pattern' ? 'secondary' : 'outline'}
+                        className={mode === 'explicit' && tags && tags.length > 0 ? 'cursor-pointer' : ''}
+                        onClick={() => {
+                            if (mode === 'explicit' && tags && tags.length > 0) {
+                                setOpenTagsModal(true);
+                            }
+                        }}
+                    >
+                        {mode === 'pattern' ? 'Pattern' : 'Explicit'}
+
+                        {mode === 'explicit' && tags && tags.length > 0 && (
+                            <span className="ml-1">/ {tags.length} Tag(s)</span>
+                        )}
+                    </Badge>
+
+                    {mode === 'explicit' && (
+                        <PopupModal
+                            isOpen={openTagsModal}
+                            onClose={() => setOpenTagsModal(false)}
+                            title={`Associated Tags - ${readerName}`}
+                            size="md"
+                        >
+                            <div className="space-y-2">
+                                {tags && tags.length > 0 ? (
+                                    <div className="space-y-2">
+                                        {tags.map((tag) => (
+                                            <div key={tag.id} className="flex items-center justify-between p-2 rounded-lg border">
+                                                <div>
+                                                    <span className="font-medium">{tag.name}</span>
+                                                    <span className="text-sm text-muted-foreground ml-2">
+                                                        {tag.asset_name}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-muted-foreground">No tags associated</p>
+                                )}
+                            </div>
+                        </PopupModal>
+                    )}
+                </>
             );
         },
     },
@@ -175,15 +143,38 @@ export const columns: ColumnDef<Reader>[] = [
     {
         accessorKey: "config",
         header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="Config" />
+            <DataTableColumnHeader column={column} title="Configuration" />
         ),
         cell: ({ row }) => {
-            const configValue = row.getValue("config");
+            const config = row.getValue("config");
             const readerName = row.getValue("name") as string;
+            const [openConfigModal, setOpenConfigModal] = useState(false);
 
-            if (!configValue) return <span className="text-muted-foreground">None</span>;
+            return (
+                <>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setOpenConfigModal(true)}
+                        className="h-8 px-2 text-xs cursor-pointer"
+                    >
+                        View <Eye />
+                    </Button>
 
-            return <JsonConfigPreview data={configValue as string} readerName={readerName} />;
+                    <PopupModal
+                        isOpen={openConfigModal}
+                        onClose={() => setOpenConfigModal(false)}
+                        title={`Configuration - ${readerName}`}
+                        size="lg"
+                    >
+                        <div className="overflow-auto max-h-[60vh]">
+                            <pre className="text-sm bg-muted p-4 rounded-lg">
+                                {JSON.stringify(config, null, 2)}
+                            </pre>
+                        </div>
+                    </PopupModal>
+                </>
+            );
         },
     },
 
@@ -248,7 +239,7 @@ export const columns: ColumnDef<Reader>[] = [
                             <AlertCircle className="h-4 w-4" />
                             <AlertTitle>Warning</AlertTitle>
                             <AlertDescription>
-                                Are you sure you want to delete this reader?
+                                Are you sure you want to delete this reader? This action cannot be undone.
                             </AlertDescription>
                         </Alert>
                     </PopupModal>

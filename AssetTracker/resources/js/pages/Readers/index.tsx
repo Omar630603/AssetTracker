@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Head, useForm } from '@inertiajs/react';
-import { AlertCircle, PlusCircle, Trash2 } from 'lucide-react';
+import { AlertCircle, PlusCircle, Trash2, Info } from 'lucide-react';
 
 import AppLayout from '@/layouts/app-layout';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,9 @@ import { Input } from '@/components/ui/input';
 import { Combobox } from '@/components/combobox';
 import { JsonViewer } from '@/components/json-viewer';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Switch } from '@/components/ui/switch';
+import { MultiSelect } from '@/components/multi-select';
+import { Tag } from '@/components/data-table/columns/tags';
 
 const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Readers', href: '/readers' },
@@ -24,10 +27,12 @@ const breadcrumbs: BreadcrumbItem[] = [
 interface ReadersPageProps {
     readers: Reader[];
     locations: { id: string; name: string }[];
+    tags?: Tag[];
     defaultConfig: any;
+    assetNamePattern: string;
 }
 
-export default function ReadersIndex({ readers, locations = [], defaultConfig }: ReadersPageProps) {
+export default function ReadersIndex({ readers, locations = [], tags = [], defaultConfig, assetNamePattern }: ReadersPageProps) {
     const [readersData, setReadersData] = useState<Reader[]>(readers);
     const [openAddModal, setOpenAddModal] = useState(false);
     const [openDeleteSelectedModal, setOpenDeleteSelectedModal] = useState(false);
@@ -38,7 +43,9 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
     const { data, setData, post, processing, errors, reset } = useForm({
         name: '',
         location_id: '',
-        config: defaultConfig
+        discovery_mode: 'explicit' as 'pattern' | 'explicit',
+        config: defaultConfig,
+        tag_ids: [] as string[],
     });
 
     const { delete: deleteSelected, setData: setDeleteData, processing: deleteProcessing } = useForm({
@@ -93,7 +100,7 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
                 },
             });
         } catch (e) {
-            toast.error('Invalid JSON configuration');
+            toast.error('Failed to make request');
         }
     };
 
@@ -121,6 +128,11 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
     const locationOptions = locations.map(loc => ({
         value: loc.id,
         label: loc.name
+    }));
+
+    const tagOptions = tags.map(tag => ({
+        value: tag.id,
+        label: `${tag.name} - ${tag.asset_name}`
     }));
 
     const hasSelections = Object.keys(rowSelection).length > 0;
@@ -174,8 +186,9 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
                     size="lg"
                     primaryActionLabel="Add Reader"
                     isLoading={processing}
+                    className="max-h-[90vh]"
                 >
-                    <div className="space-y-4">
+                    <div className="space-y-4 overflow-y-auto max-h-[60vh] pr-4">
                         <div>
                             <Label htmlFor="name">Name</Label>
                             <Input
@@ -198,6 +211,43 @@ export default function ReadersIndex({ readers, locations = [], defaultConfig }:
                             />
                             {errors.location_id && <p className="text-sm text-red-500">{errors.location_id}</p>}
                         </div>
+
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5">
+                                <Label htmlFor="discovery_mode">Pattern Discovery Mode</Label>
+                                <p className="text-sm text-muted-foreground">
+                                    Enable to scan for devices with pattern prefix
+                                </p>
+                            </div>
+                            <Switch
+                                id="discovery_mode"
+                                checked={data.discovery_mode === 'pattern'}
+                                onCheckedChange={(checked) => setData('discovery_mode', checked ? 'pattern' : 'explicit')}
+                            />
+                        </div>
+
+                        {data.discovery_mode === 'pattern' ? (
+                            <Alert>
+                                <Info className="h-4 w-4" />
+                                <AlertTitle>Pattern Mode</AlertTitle>
+                                <AlertDescription>
+                                    This reader will scan for devices with names starting with "{assetNamePattern}"
+                                </AlertDescription>
+                            </Alert>
+                        ) : (
+                            <div>
+                                <Label htmlFor="tag_ids">Associate Tags</Label>
+                                <MultiSelect
+                                    items={tagOptions}
+                                    selectedValues={data.tag_ids}
+                                    onValueChange={(values: string[]) => setData('tag_ids', values)}
+                                    placeholder="Select tags"
+                                    emptyMessage="No tags found"
+                                    searchPlaceholder="Search tags..."
+                                />
+                                {errors.tag_ids && <p className="text-sm text-red-500">{errors.tag_ids}</p>}
+                            </div>
+                        )}
 
                         <div>
                             <Label htmlFor="config">Configuration</Label>

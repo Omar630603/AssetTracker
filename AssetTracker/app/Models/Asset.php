@@ -7,9 +7,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Asset extends Model
 {
-    const TYPE = [
-        'stationary' => 'stationary',
-        'mobile' => 'mobile'
+    const TYPES = [
+        'stationary' => 'Stationary',
+        'mobile' => 'Mobile'
     ];
 
     protected $fillable = [
@@ -18,6 +18,11 @@ class Asset extends Model
         'name',
         'type',
     ];
+
+    public function location(): BelongsTo
+    {
+        return $this->belongsTo(Location::class);
+    }
 
     public function tag(): BelongsTo
     {

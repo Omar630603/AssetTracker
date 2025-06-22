@@ -10,6 +10,7 @@ class Reader extends Model
     protected $fillable = [
         'location_id',
         'name',
+        'discovery_mode',
         'config',
     ];
 

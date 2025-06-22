@@ -13,8 +13,8 @@ return new class extends Migration
     {
         Schema::create('assets', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('location_id')->constrained()->onDelete('cascade')->nullable();
-            $table->foreignId('tag_id')->constrained()->onDelete('cascade')->nullable();
+            $table->foreignId('location_id')->nullable()->constrained()->onDelete('cascade');
+            $table->foreignId('tag_id')->nullable()->constrained()->onDelete('cascade');
             $table->string('name')->unique();
             $table->string('type')->nullable();
             $table->timestamps();

@@ -13,20 +13,21 @@ import { Combobox } from '@/components/combobox';
 import { MultiSelect } from '@/components/multi-select';
 import { JsonViewer } from '@/components/json-viewer';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Location } from '@/components/data-table/columns/locations';
+import { Reader } from '@/components/data-table/columns/readers';
+import { Tag } from '@/components/data-table/columns/tags';
+import { Switch } from '@/components/ui/switch';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Info } from 'lucide-react';
 
 interface EditReaderPageProps {
-    reader: {
-        id: string;
-        name: string;
-        location_id: string;
-        config: any;
-        tag_ids?: string[];
-    };
-    locations: { id: string; name: string }[];
-    tags: { id: string; name: string; asset_name: string }[];
+    reader: Reader;
+    locations: Location[];
+    tags: Tag[];
+    assetNamePattern: string;
 }
 
-export default function EditReader({ reader, locations = [], tags = [] }: EditReaderPageProps) {
+export default function EditReader({ reader, locations = [], tags = [], assetNamePattern }: EditReaderPageProps) {
     const [configJson, setConfigJson] = useState('');
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -37,6 +38,7 @@ export default function EditReader({ reader, locations = [], tags = [] }: EditRe
     const { data, setData, put, processing, errors } = useForm({
         name: reader.name,
         location_id: reader.location_id,
+        discovery_mode: reader.discovery_mode || 'explicit' as 'pattern' | 'explicit',
         config: reader.config,
         tag_ids: reader.tag_ids || [],
     });
@@ -83,7 +85,7 @@ export default function EditReader({ reader, locations = [], tags = [] }: EditRe
                 },
             });
         } catch (e) {
-            toast.error('Invalid JSON configuration');
+            toast.error('Failed to make request');
         }
     };
 
@@ -143,19 +145,43 @@ export default function EditReader({ reader, locations = [], tags = [] }: EditRe
                                 {errors.location_id && <p className="text-sm text-red-500 mt-1">{errors.location_id}</p>}
                             </div>
 
-                            <div>
-                                <Label htmlFor="tag_ids">Associated Tags</Label>
-                                <MultiSelect
-                                    items={tagOptions}
-                                    selectedValues={data.tag_ids}
-                                    onValueChange={(values: string[]) => setData('tag_ids', values)}
-                                    placeholder="Select tags"
-                                    emptyMessage="No tags found"
-                                    searchPlaceholder="Search tags..."
-                                    className="mt-1"
+                            <div className="flex items-center justify-between">
+                                <div className="space-y-0.5">
+                                    <Label htmlFor="discovery_mode">Pattern Discovery Mode</Label>
+                                    <p className="text-sm text-muted-foreground">
+                                        Enable to scan for devices with pattern prefix
+                                    </p>
+                                </div>
+                                <Switch
+                                    id="discovery_mode"
+                                    checked={data.discovery_mode === 'pattern'}
+                                    onCheckedChange={(checked) => setData('discovery_mode', checked ? 'pattern' : 'explicit')}
                                 />
-                                {errors.tag_ids && <p className="text-sm text-red-500 mt-1">{errors.tag_ids}</p>}
                             </div>
+
+                            {data.discovery_mode === 'pattern' ? (
+                                <Alert>
+                                    <Info className="h-4 w-4" />
+                                    <AlertTitle>Pattern Mode</AlertTitle>
+                                    <AlertDescription>
+                                        This reader will scan for devices with names starting with "{assetNamePattern}"
+                                    </AlertDescription>
+                                </Alert>
+                            ) : (
+                                <div>
+                                    <Label htmlFor="tag_ids">Associated Tags</Label>
+                                    <MultiSelect
+                                        items={tagOptions}
+                                        selectedValues={data.tag_ids}
+                                        onValueChange={(values: string[]) => setData('tag_ids', values)}
+                                        placeholder="Select tags"
+                                        emptyMessage="No tags found"
+                                        searchPlaceholder="Search tags..."
+                                        className="mt-1"
+                                    />
+                                    {errors.tag_ids && <p className="text-sm text-red-500 mt-1">{errors.tag_ids}</p>}
+                                </div>
+                            )}
 
                             <div>
                                 <Label htmlFor="config">Configuration</Label>

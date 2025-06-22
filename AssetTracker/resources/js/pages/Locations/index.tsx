@@ -70,7 +70,7 @@ export default function LocationsIndex({ locations }: LocationsPageProps) {
                 },
             });
         } catch (e) {
-            toast.error('Invalid JSON configuration');
+            toast.error('Failed to make request');
         }
     };
 

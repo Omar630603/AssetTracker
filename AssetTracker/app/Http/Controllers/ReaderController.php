@@ -17,6 +17,7 @@ class ReaderController extends Controller
                 'id' => $reader->id,
                 'name' => $reader->name,
                 'location' => $reader->location->name,
+                'discovery_mode' => $reader->discovery_mode,
                 'config' => $reader->config,
                 'tags' => $reader->tags->map(function ($tag) {
                     return [
@@ -30,10 +31,20 @@ class ReaderController extends Controller
 
         $locations = Location::select('id', 'name')->get();
 
+        $tags = Tag::with('asset')->get()->map(function ($tag) {
+            return [
+                'id' => $tag->id,
+                'name' => $tag->name,
+                'asset_name' => $tag->asset ? $tag->asset->name : 'No Asset',
+            ];
+        });
+
         return inertia('Readers/index', [
             'readers' => $readers,
             'locations' => $locations,
+            'tags' => $tags,
             'defaultConfig' => Reader::$defaultConfig,
+            'assetNamePattern' => env('ASSET_NAME_PATTERN', 'ASSET_'),
         ]);
     }
 
@@ -43,6 +54,7 @@ class ReaderController extends Controller
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:255|unique:readers,name',
                 'location_id' => 'required|exists:locations,id',
+                'discovery_mode' => 'required|in:pattern,explicit',
                 'config' => 'required|array',
             ]);
 
@@ -53,11 +65,12 @@ class ReaderController extends Controller
             $reader = Reader::create([
                 'name' => $request->name,
                 'location_id' => $request->location_id,
+                'discovery_mode' => $request->discovery_mode,
                 'config' => $request->config,
             ]);
 
-            // Attach tags if provided
-            if ($request->has('tag_ids') && is_array($request->tag_ids)) {
+            // Attach tags if provided and discovery_mode is explicit
+            if ($request->discovery_mode === 'explicit' && $request->has('tag_ids') && is_array($request->tag_ids)) {
                 $reader->tags()->sync($request->tag_ids);
             }
 
@@ -87,11 +100,13 @@ class ReaderController extends Controller
                 'id' => $reader->id,
                 'name' => $reader->name,
                 'location_id' => $reader->location_id,
+                'discovery_mode' => $reader->discovery_mode,
                 'config' => $reader->config,
                 'tag_ids' => $reader->tags->pluck('id')->toArray(),
             ],
             'locations' => $locations,
             'tags' => $tags,
+            'assetNamePattern' => env('ASSET_NAME_PATTERN', 'ASSET_'),
         ]);
     }
 
@@ -103,6 +118,7 @@ class ReaderController extends Controller
             $validator = Validator::make($request->all(), [
                 'name' => 'required|string|max:255|unique:readers,name,' . $id,
                 'location_id' => 'required|exists:locations,id',
+                'discovery_mode' => 'required|in:pattern,explicit',
                 'config' => 'required|array',
                 'tag_ids' => 'nullable|array',
                 'tag_ids.*' => 'exists:tags,id',
@@ -115,10 +131,12 @@ class ReaderController extends Controller
             $reader->update([
                 'name' => $request->name,
                 'location_id' => $request->location_id,
+                'discovery_mode' => $request->discovery_mode,
                 'config' => $request->config,
             ]);
 
-            if ($request->has('tag_ids')) {
+            // Only update tags if discovery_mode is explicit and tag_ids are provided
+            if ($request->discovery_mode === 'explicit' && $request->has('tag_ids')) {
                 $reader->tags()->sync($request->tag_ids);
             }
 

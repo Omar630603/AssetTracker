@@ -19,13 +19,16 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner"
 import { useForm } from "@inertiajs/react";
 
-export interface Tag {
-    id: string
-    name: string
-    asset_name?: string
+export interface Asset {
+    id: string,
+    name: string,
+    type: string,
+    tag_id?: string,
+    tag_name?: string,
+    location_name?: string,
 }
 
-export const columns: ColumnDef<Tag>[] = [
+export const columns: ColumnDef<Asset>[] = [
     {
         id: "select",
         header: ({ table }) => (
@@ -58,35 +61,57 @@ export const columns: ColumnDef<Tag>[] = [
     },
 
     {
-        accessorKey: "asset_name",
+        accessorKey: "type",
         header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="Asset" />
+            <DataTableColumnHeader column={column} title="Type" />
         ),
         cell: ({ row }) => {
-            const asset_name = row.getValue("asset_name") as string;
-            return <span className="text-muted-foreground">{asset_name || "N/A"}</span>;
+            const type = row.getValue("type") as string;
+            return <span className="text-muted-foreground">{type || "N/A"}</span>;
+        },
+    },
+
+    {
+        accessorKey: "tag_name",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Tag" />
+        ),
+        cell: ({ row }) => {
+            const tag_name = row.getValue("tag_name") as string;
+            return <span className="text-muted-foreground">{tag_name || "N/A"}</span>;
+        },
+    },
+
+    {
+        accessorKey: "location_name",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Location" />
+        ),
+        cell: ({ row }) => {
+            const location_name = row.getValue("location_name") as string;
+            return <span className="text-muted-foreground">{location_name || "N/A"}</span>;
         },
     },
 
     {
         id: "actions",
         cell: ({ row }) => {
-            const tag = row.original;
-            const tagName = row.getValue("name") as string;
+            const asset = row.original;
+            const assetName = row.getValue("name") as string;
             const [openDeleteModal, setDeleteModal] = useState(false);
             const { delete: destroy, processing } = useForm();
 
             const handleDelete = () => {
-                destroy(`/tags/${tag.id}`, {
+                destroy(`/assets/${asset.id}`, {
                     onSuccess: () => {
                         setDeleteModal(false);
                         toast.success("Deleted", {
-                            description: `Tag "${tag.name}" has been deleted.`,
+                            description: `Asset "${asset.name}" has been deleted.`,
                         });
                     },
                     onError: () => {
                         toast.error("Error", {
-                            description: `Failed to delete tag "${tag.name}".`,
+                            description: `Failed to delete asset "${asset.name}".`,
                         });
                     },
                 });
@@ -105,7 +130,7 @@ export const columns: ColumnDef<Tag>[] = [
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem>
-                                <a href={`/tags/${tag.id}/edit`} className="flex w-full">
+                                <a href={`/assets/${asset.id}/edit`} className="flex w-full">
                                     Edit
                                 </a>
                             </DropdownMenuItem>
@@ -120,7 +145,7 @@ export const columns: ColumnDef<Tag>[] = [
                         isOpen={openDeleteModal}
                         onClose={() => setDeleteModal(false)}
                         onPrimaryAction={handleDelete}
-                        title={`Delete Confirmation${tagName ? ` - ${tagName}` : ''}`}
+                        title={`Delete Confirmation${assetName ? ` - ${assetName}` : ''}`}
                         variant="confirm"
                         size="md"
                         isLoading={processing}
@@ -129,7 +154,7 @@ export const columns: ColumnDef<Tag>[] = [
                             <AlertCircle className="h-4 w-4" />
                             <AlertTitle>Warning</AlertTitle>
                             <AlertDescription>
-                                Are you sure you want to delete this tag?
+                                Are you sure you want to delete this asset?
                             </AlertDescription>
                         </Alert>
                     </PopupModal>

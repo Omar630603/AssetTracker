@@ -22,7 +22,7 @@ class AssetSeeder extends Seeder
             'location_id' => $location->id,
             'tag_id' => $tag->id,
             'name' => 'Asset_01',
-            'type' => Asset::TYPE['stationary']
+            'type' => 'stationary'
         ]);
     }
 }
