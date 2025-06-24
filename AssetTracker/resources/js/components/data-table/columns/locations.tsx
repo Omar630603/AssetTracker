@@ -60,7 +60,7 @@ export const columns: ColumnDef<Location>[] = [
     {
         accessorKey: "floor",
         header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="Location" />
+            <DataTableColumnHeader column={column} title="Floor" />
         ),
         cell: ({ row }) => {
             const floor = row.getValue("floor") as string;
@@ -70,6 +70,9 @@ export const columns: ColumnDef<Location>[] = [
 
     {
         id: "actions",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Actions" />
+        ),
         cell: ({ row }) => {
             const location = row.original;
             const locationName = row.getValue("name") as string;

@@ -18,14 +18,19 @@ import { PopupModal } from "@/components/popup-modal"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { toast } from "sonner"
 import { useForm } from "@inertiajs/react";
+import { Badge } from "@/components/ui/badge";
 
-export interface Tag {
+export interface User {
     id: string
     name: string
-    asset_name?: string
+    username: string
+    role: string
+    department?: string | null
+    position?: string | null
+    email: string
 }
 
-export const columns: ColumnDef<Tag>[] = [
+export const columns: ColumnDef<User>[] = [
     {
         id: "select",
         header: ({ table }) => (
@@ -54,18 +59,43 @@ export const columns: ColumnDef<Tag>[] = [
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Name" />
         ),
-        cell: ({ row }) => <div className="font-medium">{row.getValue("name")}</div>,
+        cell: ({ row }) =>
+            <div className="font-medium">
+                {row.getValue("name")}
+                <br />
+                <span className="text-sm text-muted-foreground">
+                    {row.original.username}
+                </span>
+            </div>,
     },
 
     {
-        accessorKey: "asset_name",
+        accessorKey: "email",
         header: ({ column }) => (
-            <DataTableColumnHeader column={column} title="Asset" />
+            <DataTableColumnHeader column={column} title="Email" />
         ),
-        cell: ({ row }) => {
-            const asset_name = row.getValue("asset_name") as string;
-            return <span className="text-muted-foreground">{asset_name || "N/A"}</span>;
-        },
+        cell: ({ row }) => (
+            <span className="text-sm text-muted-foreground">
+                {row.getValue("email")}
+            </span>
+        ),
+    },
+
+    {
+        accessorKey: "role",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Role" />
+        ),
+        cell: ({ row }) => (
+            <Badge variant="outline" className="flex flex-col items-start py-2 capitalize">
+                <span>{row.original.role}</span>
+                {row.original.role === "staff" && (
+                    <span className="text-xs text-muted-foreground">
+                        {row.original.department || "No Department"} - {row.original.position || "No Position"}
+                    </span>
+                )}
+            </Badge>
+        ),
     },
 
     {
@@ -74,23 +104,23 @@ export const columns: ColumnDef<Tag>[] = [
             <DataTableColumnHeader column={column} title="Actions" />
         ),
         cell: ({ row }) => {
-            const tag = row.original;
-            const tagName = row.getValue("name") as string;
+            const user = row.original;
+            const userName = row.getValue("name") as string;
             const [openDeleteModal, setDeleteModal] = useState(false);
             const { delete: destroy, processing } = useForm();
 
             const handleDelete = () => {
-                destroy(`/tags/${tag.id}`, {
+                destroy(`/users/${user.id}`, {
                     onSuccess: () => {
                         setDeleteModal(false);
                         toast.success("Deleted", {
-                            description: `Tag "${tag.name}" has been deleted.`,
+                            description: `User "${user.name}" has been deleted.`,
                             descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
                     onError: () => {
                         toast.error("Error", {
-                            description: `Failed to delete tag "${tag.name}".`,
+                            description: `Failed to delete user "${user.name}".`,
                             descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
@@ -110,7 +140,7 @@ export const columns: ColumnDef<Tag>[] = [
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem>
-                                <a href={`/tags/${tag.id}/edit`} className="flex w-full">
+                                <a href={`/users/${user.id}/edit`} className="flex w-full">
                                     Edit
                                 </a>
                             </DropdownMenuItem>
@@ -125,7 +155,7 @@ export const columns: ColumnDef<Tag>[] = [
                         isOpen={openDeleteModal}
                         onClose={() => setDeleteModal(false)}
                         onPrimaryAction={handleDelete}
-                        title={`Delete Confirmation${tagName ? ` - ${tagName}` : ''}`}
+                        title={`Delete Confirmation${userName ? ` - ${userName}` : ''}`}
                         variant="confirm"
                         size="md"
                         isLoading={processing}
@@ -134,7 +164,7 @@ export const columns: ColumnDef<Tag>[] = [
                             <AlertCircle className="h-4 w-4" />
                             <AlertTitle>Warning</AlertTitle>
                             <AlertDescription>
-                                Are you sure you want to delete this tag?
+                                Are you sure you want to delete this user?
                             </AlertDescription>
                         </Alert>
                     </PopupModal>

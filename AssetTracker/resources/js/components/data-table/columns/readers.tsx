@@ -184,6 +184,9 @@ export const columns: ColumnDef<Reader>[] = [
 
     {
         id: "actions",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Actions" />
+        ),
         cell: ({ row }) => {
             const reader = row.original;
             const readerName = row.getValue("name") as string;

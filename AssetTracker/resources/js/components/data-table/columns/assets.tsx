@@ -95,6 +95,9 @@ export const columns: ColumnDef<Asset>[] = [
 
     {
         id: "actions",
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title="Actions" />
+        ),
         cell: ({ row }) => {
             const asset = row.original;
             const assetName = row.getValue("name") as string;

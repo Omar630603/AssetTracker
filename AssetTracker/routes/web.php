@@ -7,7 +7,7 @@ use App\Http\Controllers\{
     TagController,
     ReaderController,
     AssetController,
-    // UserController,
+    UserController,
     // RoleController,
     // PermissionController,
     AssetLocationLogController
@@ -44,7 +44,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::resource('readers', ReaderController::class)->except(['index']);
         Route::delete('readers/destroy/bulk', [ReaderController::class, 'bulkDestroy'])->name('readers.bulk-destroy');
 
-        // Route::resource('users', UserController::class);
+        Route::resource('users', UserController::class);
+        Route::delete('users/destroy/bulk', [UserController::class, 'bulkDestroy'])->name('users.bulk-destroy');
         // Route::resource('roles', RoleController::class);
         // Route::resource('permissions', PermissionController::class);
     });
