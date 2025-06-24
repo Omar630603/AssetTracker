@@ -33,6 +33,7 @@ class DashboardController extends Controller
             ->map(function ($log) {
                 return [
                     'id' => $log->id,
+                    'asset_id' => $log->asset->id ?? null,
                     'asset_name' => $log->asset->name ?? 'Unknown',
                     'location_name' => $log->location->name ?? 'Unknown',
                     'type' => $log->type,

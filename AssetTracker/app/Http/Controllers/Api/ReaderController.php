@@ -51,6 +51,9 @@ class ReaderController extends Controller
             $response['targets'] = $targets;
         }
 
+        $reader->config_fetched_at = Carbon::now();
+        $reader->save();
+
         return response()->json($response);
     }
 

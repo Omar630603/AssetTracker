@@ -1,6 +1,6 @@
 "use client"
 
-import { Head, Link } from '@inertiajs/react';
+import { Head, Link, router } from '@inertiajs/react';
 import { ArrowLeft, MapPin, Tag, Clock } from 'lucide-react';
 
 import AppLayout from '@/layouts/app-layout';
@@ -10,6 +10,8 @@ import { DataTable } from '@/components/data-table';
 import { AssetLog, columns } from '@/components/data-table/columns/asset-logs';
 import { type BreadcrumbItem } from '@/types';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
+import { useState } from 'react';
+import { toast } from 'sonner';
 
 interface AssetData {
     id: string;
@@ -37,6 +39,24 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 export default function AssetShow({ asset, recentLogs }: AssetShowProps) {
+    const [refreshing, setRefreshing] = useState(false);
+
+    const handleRefreshLogs = () => {
+        setRefreshing(true);
+        setTimeout(() => {
+            router.reload({
+                only: ['recentLogs'],
+                onFinish: () => {
+                setRefreshing(false);
+                toast.success('Logs refreshed successfully');
+            },onError: () => {
+                    setRefreshing(false);
+                    toast.error('Failed to refresh logs');
+                }
+            });
+        }, 1000);
+    };
+
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={`Asset: ${asset.name}`} />
@@ -190,6 +210,8 @@ export default function AssetShow({ asset, recentLogs }: AssetShowProps) {
                             data={recentLogs}
                             searchColumn={["location_name", "status"]}
                             searchPlaceholder="Search logs..."
+                            onRefresh={handleRefreshLogs}
+                            isRefreshing={refreshing}
                         />
                     </CardContent>
                 </Card>

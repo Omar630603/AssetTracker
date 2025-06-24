@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Head, useForm } from "@inertiajs/react";
+import { Head, useForm, router } from "@inertiajs/react";
 import {
     AlertCircle,
     Package,
@@ -98,6 +98,7 @@ export default function Dashboard({
     const [openDeleteModal, setOpenDeleteModal] = useState(false);
     const [rowSelection, setRowSelection] = useState({});
     const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
+    const [refreshing, setRefreshing] = useState(false);
 
     const { delete: deleteSelected, processing } = useForm({
         ids: [] as string[],
@@ -117,6 +118,23 @@ export default function Dashboard({
 
         setSelectedLogIds(selectedIds);
     }, [rowSelection, logsData]);
+
+    const handleRefreshLogs = () => {
+        setRefreshing(true);
+        setTimeout(() => {
+            router.reload({
+                only: ['logs'],
+                onFinish: () => {
+                    setRefreshing(false);
+                    toast.success('Logs refreshed successfully');
+                },
+                onError: () => {
+                    setRefreshing(false);
+                    toast.error('Failed to refresh logs');
+                },
+            });
+        }, 500);
+    };
 
     const handleDeleteSelected = () => {
         if (selectedLogIds.length === 0) return;
@@ -328,6 +346,8 @@ export default function Dashboard({
                             searchColumn={["asset_name", "location_name"]}
                             searchPlaceholder="Search logs..."
                             onRowSelectionChange={setRowSelection}
+                            onRefresh={handleRefreshLogs}
+                            isRefreshing={refreshing}
                             state={{ rowSelection }}
                         />
                     </CardContent>

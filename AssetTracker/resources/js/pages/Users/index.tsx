@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
 import { AlertCircle, PlusCircle, Trash2 } from 'lucide-react';
 
 import AppLayout from '@/layouts/app-layout';
@@ -31,6 +31,7 @@ export default function UsersIndex({ users, roles = [] }: UsersPageProps) {
     const [openDeleteSelectedModal, setOpenDeleteSelectedModal] = useState(false);
     const [rowSelection, setRowSelection] = useState({});
     const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+    const [refreshing, setRefreshing] = useState(false);
 
     const { data, setData, post, processing, errors, reset } = useForm({
         name: '',
@@ -63,6 +64,23 @@ export default function UsersIndex({ users, roles = [] }: UsersPageProps) {
         setSelectedUserIds(selectedIds);
         setDeleteData('ids', selectedIds);
     }, [rowSelection, usersData]);
+
+    const handleRefreshLogs = () => {
+        setRefreshing(true);
+        setTimeout(() => {
+            router.reload({
+                only: ['users'],
+                onFinish: () => {
+                    setRefreshing(false);
+                    toast.success('Users refreshed successfully');
+                },
+                onError: () => {
+                    setRefreshing(false);
+                    toast.error('Failed to refresh users');
+                },
+            });
+        }, 500);
+    };
 
     const handleSubmit = () => {
         try {
@@ -145,6 +163,8 @@ export default function UsersIndex({ users, roles = [] }: UsersPageProps) {
                     searchColumn={["name", "username"]}
                     searchPlaceholder="Search users..."
                     onRowSelectionChange={setRowSelection}
+                    onRefresh={handleRefreshLogs}
+                    isRefreshing={refreshing}
                     state={{ rowSelection }}
                 />
 

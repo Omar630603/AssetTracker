@@ -28,6 +28,7 @@ export interface Reader {
     location_id?: string,
     discovery_mode?: 'pattern' | 'explicit',
     config: any,
+    config_fetched_at?: string,
     tags?: {
         id: string,
         name: string,
@@ -150,6 +151,7 @@ export const columns: ColumnDef<Reader>[] = [
             const config = row.getValue("config") as string;
             const readerName = row.getValue("name") as string;
             const [openConfigModal, setOpenConfigModal] = useState(false);
+            const last_time_config_fetched = row.original.config_fetched_at as string | undefined;
 
             return (
                 <>
@@ -161,7 +163,11 @@ export const columns: ColumnDef<Reader>[] = [
                     >
                         View <Eye />
                     </Button>
-
+                    {last_time_config_fetched && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                            Last fetched: {new Date(last_time_config_fetched).toLocaleString()}
+                        </span>
+                    )}
                     <PopupModal
                         isOpen={openConfigModal}
                         onClose={() => setOpenConfigModal(false)}

@@ -14,6 +14,7 @@ class Reader extends Model
         'name',
         'discovery_mode',
         'config',
+        'config_fetched_at',
     ];
 
     protected $casts = [

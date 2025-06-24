@@ -28,12 +28,16 @@ import { Input } from "@/components/ui/input"
 import { DataTableViewOptions } from "./DataTableViewOptions"
 import { DataTablePagination } from "./DataTablePagination"
 
+import { RotateCw } from "lucide-react";
+
 interface DataTableProps<TData, TValue> {
     columns: ColumnDef<TData, TValue>[]
     data: TData[]
     searchColumn?: string[]
     searchPlaceholder?: string
     onRowSelectionChange?: (value: RowSelectionState) => void
+    onRefresh?: () => void;
+    isRefreshing?: boolean;
     state?: {
         rowSelection?: RowSelectionState
     }
@@ -45,6 +49,8 @@ export function DataTable<TData, TValue>({
     searchColumn = ["name"], // Default search column
     searchPlaceholder = "Search...",
     onRowSelectionChange,
+    onRefresh,
+    isRefreshing = false,
     state = {},
 }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([])
@@ -99,12 +105,25 @@ export function DataTable<TData, TValue>({
     return (
         <div className="space-y-4">
             <div className="flex items-center justify-between">
+                {onRefresh && (
+                    <button
+                        type="button"
+                        onClick={onRefresh}
+                        disabled={isRefreshing}
+                        className="flex items-center gap-2 h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] text-foreground mr-2 cursor-pointer"
+                        style={{ width: "auto" }}
+                        title="Refresh"
+                    >
+                        <RotateCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} /> Refresh
+                    </button>
+                )}
                 <Input
                     placeholder={searchPlaceholder}
                     value={globalFilter}
                     onChange={(e) => setGlobalFilter(e.target.value)}
                     className="max-w-sm"
                 />
+
                 <DataTableViewOptions table={table} />
             </div>
 
@@ -127,26 +146,35 @@ export function DataTable<TData, TValue>({
                         ))}
                     </TableHeader>
                     <TableBody>
-                        {table.getRowModel().rows?.length ? (
-                            table.getRowModel().rows.map((row) => (
-                                <TableRow
-                                    key={row.id}
-                                    data-state={row.getIsSelected() && "selected"}
-                                >
-                                    {row.getVisibleCells().map((cell) => (
-                                        <TableCell key={cell.id}>
-                                            {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                        </TableCell>
-                                    ))}
+                        {!isRefreshing ? (
+                            table.getRowModel().rows?.length ? (
+                                table.getRowModel().rows.map((row) => (
+                                    <TableRow
+                                        key={row.id}
+                                        data-state={row.getIsSelected() && "selected"}
+                                    >
+                                        {row.getVisibleCells().map((cell) => (
+                                            <TableCell key={cell.id}>
+                                                {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                            </TableCell>
+                                        ))}
+                                    </TableRow>
+                                ))
+                            ) : (
+                                <TableRow>
+                                    <TableCell colSpan={columns.length} className="h-24 text-center">
+                                        No results.
+                                    </TableCell>
                                 </TableRow>
-                            ))
+                            )
                         ) : (
                             <TableRow>
                                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                                    No results.
+                                    Loading...
                                 </TableCell>
                             </TableRow>
                         )}
+
                     </TableBody>
                 </Table>
             </div>

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
 import { AlertCircle, PlusCircle, Trash2 } from 'lucide-react';
 
 import AppLayout from '@/layouts/app-layout';
@@ -32,6 +32,7 @@ export default function AssetsIndex({ assets, asset_types = [], available_tags =
     const [openDeleteSelectedModal, setOpenDeleteSelectedModal] = useState(false);
     const [rowSelection, setRowSelection] = useState({});
     const [selectedAssetIds, setSelectedAssetIds] = useState<string[]>([]);
+    const [refreshing, setRefreshing] = useState(false);
 
     const { data, setData, post, processing, errors, reset } = useForm({
         name: '',
@@ -66,6 +67,23 @@ export default function AssetsIndex({ assets, asset_types = [], available_tags =
         setSelectedAssetIds(selectedIds);
         setDeleteData('ids', selectedIds);
     }, [rowSelection, assetsData]);
+
+    const handleRefreshLogs = () => {
+        setRefreshing(true);
+        setTimeout(() => {
+            router.reload({
+                only: ['assets'],
+                onFinish: () => {
+                    setRefreshing(false);
+                    toast.success('Assets refreshed successfully');
+                },
+                onError: () => {
+                    setRefreshing(false);
+                    toast.error('Failed to refresh assets');
+                }
+            });
+        }, 500);
+    };
 
     const handleSubmit = () => {
         try {
@@ -147,6 +165,8 @@ export default function AssetsIndex({ assets, asset_types = [], available_tags =
                     searchColumn={["name", "floor"]}
                     searchPlaceholder="Search assets..."
                     onRowSelectionChange={setRowSelection}
+                    onRefresh={handleRefreshLogs}
+                    isRefreshing={refreshing}
                     state={{ rowSelection }}
                 />
 

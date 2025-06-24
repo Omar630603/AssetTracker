@@ -5,9 +5,11 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { DataTableColumnHeader } from "@/components/data-table"
 import { Badge } from "@/components/ui/badge"
 import { Radio } from "lucide-react"
+import { Link } from "@inertiajs/react"
 
 export interface LocationLog {
     id: string
+    asset_id: string
     asset_name: string
     location_name: string
     type: string
@@ -47,7 +49,20 @@ export const columns: ColumnDef<LocationLog>[] = [
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title="Asset" />
         ),
-        cell: ({ row }) => <div className="font-medium">{row.getValue("asset_name")}</div>,
+        cell: ({ row }) => {
+            const asset_id = row.original.asset_id;
+            const name = row.getValue("asset_name") as string;
+            return asset_id ? (
+                <Link
+                    href={`/assets/${asset_id}`}
+                    className="font-medium text-primary underline hover:opacity-80"
+                >
+                    {name}
+                </Link>
+            ) : (
+                <span className="font-medium text-muted-foreground">{name}</span>
+            );
+        },
     },
     {
         accessorKey: "location_name",

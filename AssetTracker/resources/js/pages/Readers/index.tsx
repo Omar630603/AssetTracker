@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
 import { AlertCircle, PlusCircle, Trash2, Info } from 'lucide-react';
 
 import AppLayout from '@/layouts/app-layout';
@@ -39,6 +39,7 @@ export default function ReadersIndex({ readers, locations = [], tags = [], defau
     const [configJson, setConfigJson] = useState('');
     const [rowSelection, setRowSelection] = useState({});
     const [selectedReaderIds, setSelectedReaderIds] = useState<string[]>([]);
+    const [refreshing, setRefreshing] = useState(false);
 
     const { data, setData, post, processing, errors, reset } = useForm({
         name: '',
@@ -78,6 +79,23 @@ export default function ReadersIndex({ readers, locations = [], tags = [], defau
             // Don't update the form data if invalid JSON
         }
         setConfigJson(jsonString);
+    };
+
+    const handleRefreshLogs = () => {
+        setRefreshing(true);
+        setTimeout(() => {
+            router.reload({
+                only: ['readers'],
+                onFinish: () => {
+                    setRefreshing(false);
+                    toast.success('Readers refreshed successfully');
+                },
+                onError: () => {
+                    setRefreshing(false);
+                    toast.error('Failed to refresh readers');
+                }
+            });
+        }, 500);
     };
 
     const handleSubmit = () => {
@@ -174,6 +192,8 @@ export default function ReadersIndex({ readers, locations = [], tags = [], defau
                     searchColumn={["name", "location"]}
                     searchPlaceholder="Search readers..."
                     onRowSelectionChange={setRowSelection}
+                    onRefresh={handleRefreshLogs}
+                    isRefreshing={refreshing}
                     state={{ rowSelection }}
                 />
 

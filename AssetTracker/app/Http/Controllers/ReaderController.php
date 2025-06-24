@@ -19,6 +19,7 @@ class ReaderController extends Controller
                 'location' => $reader->location->name,
                 'discovery_mode' => $reader->discovery_mode,
                 'config' => $reader->config,
+                'config_fetched_at' => $reader->config_fetched_at ? $reader->config_fetched_at : null,
                 'tags' => $reader->tags->map(function ($tag) {
                     return [
                         'id' => $tag->id,

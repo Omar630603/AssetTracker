@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
 import { AlertCircle, PlusCircle, Trash2 } from 'lucide-react';
 
 import AppLayout from '@/layouts/app-layout';
@@ -29,6 +29,7 @@ export default function LocationsIndex({ locations }: LocationsPageProps) {
     const [openDeleteSelectedModal, setOpenDeleteSelectedModal] = useState(false);
     const [rowSelection, setRowSelection] = useState({});
     const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>([]);
+    const [refreshing, setRefreshing] = useState(false);
 
     const { data, setData, post, processing, errors, reset } = useForm({
         name: '',
@@ -72,6 +73,23 @@ export default function LocationsIndex({ locations }: LocationsPageProps) {
         } catch (e) {
             toast.error('Failed to make request');
         }
+    };
+
+    const handleRefreshLogs = () => {
+        setRefreshing(true);
+        setTimeout(() => {
+            router.reload({
+                only: ['locations'],
+                onFinish: () => {
+                    setRefreshing(false);
+                    toast.success('Locations refreshed successfully');
+                },
+                onError: () => {
+                    setRefreshing(false);
+                    toast.error('Failed to refresh locations');
+                }
+            });
+        }, 500);
     };
 
     const handleDeleteSelected = () => {
@@ -133,6 +151,8 @@ export default function LocationsIndex({ locations }: LocationsPageProps) {
                     searchColumn={["name", "floor"]}
                     searchPlaceholder="Search locations..."
                     onRowSelectionChange={setRowSelection}
+                    onRefresh={handleRefreshLogs}
+                    isRefreshing={refreshing}
                     state={{ rowSelection }}
                 />
 

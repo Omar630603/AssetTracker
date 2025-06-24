@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from 'react';
-import { Head, useForm } from '@inertiajs/react';
+import { Head, router, useForm } from '@inertiajs/react';
 import { AlertCircle, PlusCircle, Trash2 } from 'lucide-react';
 
 import AppLayout from '@/layouts/app-layout';
@@ -29,6 +29,7 @@ export default function TagsIndex({ tags }: TagsPageProps) {
     const [openDeleteSelectedModal, setOpenDeleteSelectedModal] = useState(false);
     const [rowSelection, setRowSelection] = useState({});
     const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+    const [refreshing, setRefreshing] = useState(false);
 
     const { data, setData, post, processing, errors, reset } = useForm({
         name: '',
@@ -51,6 +52,23 @@ export default function TagsIndex({ tags }: TagsPageProps) {
         setSelectedTagIds(selectedIds);
         setDeleteData('ids', selectedIds);
     }, [rowSelection, tagsData]);
+
+    const handleRefreshLogs = () => {
+        setRefreshing(true);
+        setTimeout(() => {
+            router.reload({
+                only: ['tags'],
+                onFinish: () => {
+                    setRefreshing(false);
+                    toast.success('Tags refreshed successfully');
+                },
+                onError: () => {
+                    setRefreshing(false);
+                    toast.error('Failed to refresh tags');
+                }
+            });
+        }, 500);
+    };
 
     const handleSubmit = () => {
         try {
@@ -132,6 +150,8 @@ export default function TagsIndex({ tags }: TagsPageProps) {
                     searchColumn={["name", "floor"]}
                     searchPlaceholder="Search tags..."
                     onRowSelectionChange={setRowSelection}
+                    onRefresh={handleRefreshLogs}
+                    isRefreshing={refreshing}
                     state={{ rowSelection }}
                 />
 
