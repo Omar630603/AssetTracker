@@ -7,7 +7,6 @@
 #include <ArduinoJson.h>
 #include <map>
 #include <vector>
-#include <algorithm>
 
 // === Configuration ===
 const char* ssid = "POCO X6 5G";
@@ -16,13 +15,11 @@ const char* serverUrl = "https://150.230.8.22/api";
 const char* readerKey = "ESP32_READER_KEY";
 #define DEVICE_NAME "Asset_Reader_01"
 
-// Dynamic Configuration
+// Dynamic Configuration (Phase 3)
 struct Config {
   float txPower = -68.0;
   float pathLossExponent = 2.5;
   float maxDistance = 5.0;
-  int sampleCount = 5;
-  int sampleDelayMs = 100;
   int scanTime = 3;
   String assetNamePattern = "Asset_";
   
@@ -45,20 +42,8 @@ enum DiscoveryMode {
 DiscoveryMode discoveryMode = PATTERN;
 std::vector<String> explicitTargets;
 
-// Device tracking structure
-struct DeviceData {
-  String name;
-  float rawRssi;
-  float filteredRssi;
-  float distance;
-  String status;
-  unsigned long lastSeen;
-  int sampleCount;
-  float rssiSum;
-};
-
 // Timing
-unsigned long CONFIG_CHECK_INTERVAL = 60000;
+unsigned long CONFIG_CHECK_INTERVAL = 60000;  // 1 minute
 unsigned long lastConfigCheck = 0;
 unsigned long currentConfigVersion = 0;
 
@@ -74,74 +59,48 @@ BLEScan* pBLEScan = nullptr;
 // Keep a single global WiFiClientSecure to reuse
 WiFiClientSecure* secureClient = nullptr;
 
-// Advanced Kalman Filter Implementation
+// Kalman Filter Implementation
 class KalmanFilter {
 private:
-  float Q, R, P, X, K;
+  float Q, R, P, X;
   bool initialized;
-  unsigned long lastUpdate;
-  float innovation;
   
 public:
-  // Default constructor
+  // Default constructor (required for std::map)
   KalmanFilter() 
-    : Q(0.1), R(2.0), P(1.0), X(-60.0), K(0), initialized(false), lastUpdate(0), innovation(0) {}
+    : Q(0.1), R(2.0), P(1.0), X(-60.0), initialized(false) {}
   
   // Parameterized constructor
   KalmanFilter(float q, float r, float p, float init) 
-    : Q(q), R(r), P(p), X(init), K(0), initialized(false), lastUpdate(0), innovation(0) {}
+    : Q(q), R(r), P(p), X(init), initialized(false) {}
   
   void reconfigure(float q, float r, float p, float init) {
     Q = q; R = r; P = p; X = init;
     initialized = false;
-    K = 0;
-    innovation = 0;
   }
   
   float update(float measurement) {
-    unsigned long now = millis();
-    
     if (!initialized) {
       X = measurement;
       initialized = true;
-      lastUpdate = now;
       return X;
     }
     
-    // Time-based process noise adjustment
-    float dt = (now - lastUpdate) / 1000.0; // seconds
-    float Qdt = Q * (1.0 + dt); // Increase process noise with time
+    P = P + Q;
+    float K = P / (P + R);
+    X = X + K * (measurement - X);
+    P = (1 - K) * P;
     
-    // Prediction step
-    P = P + Qdt;
-    
-    // Update step
-    K = P / (P + R);  // Kalman gain
-    innovation = measurement - X;  // Innovation
-    X = X + K * innovation;  // State update
-    P = (1 - K) * P;  // Error covariance update
-    
-    lastUpdate = now;
     return X;
   }
   
   void reset() {
     initialized = false;
-    P = 1.0;
-    K = 0;
-    innovation = 0;
   }
-  
-  float getInnovation() const { return innovation; }
-  float getGain() const { return K; }
-  bool isStable() const { return initialized && abs(innovation) < 5.0; }
 };
 
 // Store Kalman filters for each device
 std::map<String, KalmanFilter> deviceFilters;
-
-// Multi-sample collection
-std::map<String, DeviceData> scannedDevices;
 
 // Check if device should be processed based on discovery mode
 bool shouldProcessDevice(const String& deviceName) {
@@ -150,18 +109,19 @@ bool shouldProcessDevice(const String& deviceName) {
   if (discoveryMode == PATTERN) {
     return deviceName.startsWith(config.assetNamePattern);
   } else { // EXPLICIT mode
-    return std::find(explicitTargets.begin(), explicitTargets.end(), deviceName) != explicitTargets.end();
+    for (const String& target : explicitTargets) {
+      if (deviceName == target) {
+        return true;
+      }
+    }
+    return false;
   }
 }
 
-// Calculate distance from RSSI with environmental compensation
+// Calculate distance from RSSI
 float calculateDistance(float rssi) {
   if (rssi == 0 || rssi < -100) return -1.0;
-  
-  // Environmental factor (can be made configurable)
-  float environmentalFactor = 1.0;
-  
-  float distance = pow(10, (config.txPower - rssi) / (10.0 * config.pathLossExponent)) * environmentalFactor;
+  float distance = pow(10, (config.txPower - rssi) / (10.0 * config.pathLossExponent));
   return constrain(distance, 0.01, 100.0);
 }
 
@@ -246,14 +206,12 @@ bool fetchAndApplyConfig() {
           Serial.println("[CONFIG] Discovery mode: PATTERN");
         }
         
-        // Update configuration (aligned with Laravel model)
+        // Update configuration
         JsonObject cfg = doc["config"];
         if (!cfg.isNull()) {
           config.txPower = cfg["txPower"] | config.txPower;
           config.pathLossExponent = cfg["pathLossExponent"] | config.pathLossExponent;
           config.maxDistance = cfg["maxDistance"] | config.maxDistance;
-          config.sampleCount = cfg["sampleCount"] | config.sampleCount;
-          config.sampleDelayMs = cfg["sampleDelayMs"] | config.sampleDelayMs;
           config.scanTime = cfg["scanTime"] | config.scanTime;
           config.assetNamePattern = cfg["assetNamePattern"] | config.assetNamePattern;
           
@@ -278,8 +236,6 @@ bool fetchAndApplyConfig() {
           Serial.printf("  TX Power: %.1f dBm\n", config.txPower);
           Serial.printf("  Path Loss Exp: %.1f\n", config.pathLossExponent);
           Serial.printf("  Max Distance: %.1fm\n", config.maxDistance);
-          Serial.printf("  Sample Count: %d\n", config.sampleCount);
-          Serial.printf("  Sample Delay: %dms\n", config.sampleDelayMs);
           Serial.printf("  Scan Time: %d sec\n", config.scanTime);
           Serial.printf("  Pattern: %s\n", config.assetNamePattern.c_str());
           Serial.printf("  Kalman Q=%.2f R=%.2f\n", config.kalman.Q, config.kalman.R);
@@ -299,44 +255,10 @@ bool fetchAndApplyConfig() {
   return success;
 }
 
-// Send batch reports for multiple devices
-bool sendBatchReports() {
-  if (scannedDevices.empty() || WiFi.status() != WL_CONNECTED) return false;
-  
-  int successCount = 0;
-  
-  for (auto& pair : scannedDevices) {
-    DeviceData& device = pair.second;
-    
-    // Skip if no valid samples
-    if (device.sampleCount == 0) continue;
-    
-    // Average RSSI from multiple samples
-    float avgRssi = device.rssiSum / device.sampleCount;
-    
-    // Apply Kalman filter
-    if (deviceFilters.find(device.name) == deviceFilters.end()) {
-      deviceFilters[device.name] = KalmanFilter(config.kalman.Q, config.kalman.R, 
-                                               config.kalman.P, config.kalman.initial);
-    }
-    
-    device.filteredRssi = deviceFilters[device.name].update(avgRssi);
-    device.distance = calculateDistance(device.filteredRssi);
-    device.status = (device.distance > 0 && device.distance <= config.maxDistance) ? "present" : "out_of_range";
-    
-    // Send individual report
-    if (sendReport(device.name, device.distance, device.status, avgRssi, device.filteredRssi)) {
-      successCount++;
-    }
-    
-    delay(50); // Small delay between reports
-  }
-  
-  return successCount > 0;
-}
-
-// Send single device report
+// Send report to server
 bool sendReport(const String& deviceName, float distance, const String& status, float rssi, float filteredRssi) {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  
   reportsSent++;
   
   initSecureClient();
@@ -372,22 +294,28 @@ bool sendReport(const String& deviceName, float distance, const String& status, 
   
   if (success) {
     reportsSuccess++;
-    Serial.printf("[REPORT] %s: %.1f->%.1f dBm, %.2fm (%s) - OK\n", 
-                  deviceName.c_str(), rssi, filteredRssi, distance, status.c_str());
+    Serial.println("[REPORT] Sent successfully");
   } else {
     reportsFailed++;
-    Serial.printf("[REPORT] %s: Failed (HTTP %d)\n", deviceName.c_str(), httpCode);
+    Serial.printf("[REPORT] Failed (HTTP %d)\n", httpCode);
   }
   
   https.end();
+  delay(10);
+  
   return success;
 }
 
-// Advanced multi-sample scanning
-void performMultiSampleScan() {
+// BLE device callback
+class MyAdvertisedDeviceCallbacks : public BLEAdvertisedDeviceCallbacks {
+  void onResult(BLEAdvertisedDevice advertisedDevice) {}
+};
+
+// Main scanning function
+void scanDevices() {
   scanCount++;
-  Serial.printf("\n[SCAN #%lu] Multi-sample scan (mode: %s, samples: %d)...\n", 
-                scanCount, discoveryMode == PATTERN ? "PATTERN" : "EXPLICIT", config.sampleCount);
+  Serial.printf("\n[SCAN #%lu] Starting BLE scan (mode: %s)...\n", 
+                scanCount, discoveryMode == PATTERN ? "PATTERN" : "EXPLICIT");
   Serial.printf("[HEAP] Free: %d bytes (largest: %d)\n", 
                 ESP.getFreeHeap(), ESP.getMaxAllocHeap());
   
@@ -396,79 +324,54 @@ void performMultiSampleScan() {
     return;
   }
   
-  // Clear previous scan data
-  scannedDevices.clear();
+  BLEScanResults* foundDevices = pBLEScan->start(config.scanTime, false);
+  int deviceCount = foundDevices->getCount();
   
-  // Perform multiple sample scans
-  for (int sample = 0; sample < config.sampleCount; sample++) {
-    Serial.printf("[SAMPLE %d/%d] Scanning...\n", sample + 1, config.sampleCount);
+  Serial.printf("[SCAN] Found %d devices\n", deviceCount);
+  
+  int processedCount = 0;
+  
+  for (int i = 0; i < deviceCount; i++) {
+    BLEAdvertisedDevice device = foundDevices->getDevice(i);
     
-    BLEScanResults* foundDevices = pBLEScan->start(config.scanTime, false);
-    int deviceCount = foundDevices->getCount();
-    
-    for (int i = 0; i < deviceCount; i++) {
-      BLEAdvertisedDevice device = foundDevices->getDevice(i);
-      
-      String deviceName = "";
-      if (device.haveName()) {
-        deviceName = device.getName().c_str();
-      }
-      
-      if (!shouldProcessDevice(deviceName)) {
-        continue;
-      }
-      
-      float rssi = device.getRSSI();
-      
-      // Add to or update device data
-      if (scannedDevices.find(deviceName) == scannedDevices.end()) {
-        DeviceData data;
-        data.name = deviceName;
-        data.rssiSum = rssi;
-        data.sampleCount = 1;
-        data.lastSeen = millis();
-        scannedDevices[deviceName] = data;
-      } else {
-        scannedDevices[deviceName].rssiSum += rssi;
-        scannedDevices[deviceName].sampleCount++;
-        scannedDevices[deviceName].lastSeen = millis();
-      }
+    String deviceName = "";
+    if (device.haveName()) {
+      deviceName = device.getName().c_str();
     }
     
-    pBLEScan->clearResults();
-    
-    // Delay between samples (except after last sample)
-    if (sample < config.sampleCount - 1) {
-      delay(config.sampleDelayMs);
+    if (!shouldProcessDevice(deviceName)) {
+      continue;
     }
+    
+    processedCount++;
+    float rawRssi = device.getRSSI();
+    
+    // Get or create Kalman filter
+    if (deviceFilters.find(deviceName) == deviceFilters.end()) {
+      deviceFilters[deviceName] = KalmanFilter(config.kalman.Q, config.kalman.R, 
+                                              config.kalman.P, config.kalman.initial);
+      Serial.printf("[KALMAN] New filter created for %s\n", deviceName.c_str());
+    }
+    
+    float filteredRssi = deviceFilters[deviceName].update(rawRssi);
+    float distance = calculateDistance(filteredRssi);
+    String status = (distance > 0 && distance <= config.maxDistance) ? "present" : "out_of_range";
+    
+    Serial.printf("[DEVICE] %s | RSSI: %.1f -> %.1f | Distance: %.2fm | Status: %s\n",
+                  deviceName.c_str(), rawRssi, filteredRssi, distance, status.c_str());
+    
+    sendReport(deviceName, distance, status, rawRssi, filteredRssi);
+    
+    delay(50);
   }
   
-  // Process and report all scanned devices
-  Serial.printf("[SCAN] Found %d unique matching devices\n", scannedDevices.size());
+  Serial.printf("[SCAN] Processed %d matching devices\n", processedCount);
+  pBLEScan->clearResults();
   
-  if (!scannedDevices.empty()) {
-    sendBatchReports();
-  }
-  
-  // Cleanup old filters
+  // Cleanup if too many filters
   if (deviceFilters.size() > 30) {
-    // Remove filters for devices not seen recently
-    auto it = deviceFilters.begin();
-    while (it != deviceFilters.end()) {
-      bool found = false;
-      for (const auto& pair : scannedDevices) {
-        if (pair.first == it->first) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        it = deviceFilters.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    Serial.printf("[CLEANUP] Active filters: %d\n", deviceFilters.size());
+    deviceFilters.clear();
+    Serial.println("[CLEANUP] Cleared device filters");
   }
 }
 
@@ -497,7 +400,7 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
-  Serial.println("\n=== ESP32 Asset Reader ===");
+  Serial.println("\n=== ESP32 Asset Reader (Phase 3 - Dynamic Config) ===");
   Serial.printf("Device: %s\n", DEVICE_NAME);
   Serial.printf("Initial heap: %d bytes\n", ESP.getFreeHeap());
   
@@ -508,12 +411,13 @@ void setup() {
   // Initialize BLE
   BLEDevice::init(DEVICE_NAME);
   
-  // Configure BLE scan with optimizations
+  // Configure BLE scan
   pBLEScan = BLEDevice::getScan();
+  pBLEScan->setAdvertisedDeviceCallbacks(new MyAdvertisedDeviceCallbacks());
   pBLEScan->setInterval(100);
   pBLEScan->setWindow(99);
   pBLEScan->setActiveScan(true);
-
+  
   Serial.printf("After BLE init: %d bytes\n", ESP.getFreeHeap());
   
   // Connect WiFi
@@ -552,14 +456,14 @@ void loop() {
     lastConfigCheck = millis();
   }
   
-  // Perform multi-sample scan
-  performMultiSampleScan();
+  // Scan for devices
+  scanDevices();
   
   // Print stats every 10 scans
   if (scanCount % 10 == 0) {
     printStats();
   }
   
-  // Delay between scan cycles
+  // Delay between scans
   delay(2000);
 }

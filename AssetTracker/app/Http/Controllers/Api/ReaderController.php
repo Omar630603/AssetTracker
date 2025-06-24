@@ -39,7 +39,7 @@ class ReaderController extends Controller
         $config = $reader->config ?? Reader::$defaultConfig;
 
         // Always add assetNamePattern from env
-        $config['assetNamePattern'] = env('ASSET_NAME_PATTERN', 'ASSET_');
+        $config['assetNamePattern'] = env('ASSET_NAME_PATTERN', 'Asset_');
 
         $response = [
             'name' => $reader->name,

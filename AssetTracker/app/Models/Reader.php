@@ -22,7 +22,7 @@ class Reader extends Model
         'txPower' => -68,
         'pathLossExponent' => 2.5,
         'maxDistance' => 5.0,
-        'sampleCount' => 10,
+        'sampleCount' => 5,
         'sampleDelayMs' => 100,
         'kalman' => [
             'P' => 1.0,

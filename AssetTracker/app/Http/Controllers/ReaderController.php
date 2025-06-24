@@ -138,6 +138,7 @@ class ReaderController extends Controller
             // Only update tags if discovery_mode is explicit and tag_ids are provided
             if ($request->discovery_mode === 'explicit' && $request->has('tag_ids')) {
                 $reader->tags()->sync($request->tag_ids);
+                $reader->touch();
             }
 
             return redirect()->route('readers.index')->with('success', 'Reader updated successfully');
