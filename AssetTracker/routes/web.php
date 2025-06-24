@@ -3,14 +3,12 @@
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Controllers\{
+    DashboardController,
     LocationController,
     TagController,
     ReaderController,
     AssetController,
     UserController,
-    // RoleController,
-    // PermissionController,
-    AssetLocationLogController
 };
 
 Route::get('/', function () {
@@ -18,17 +16,12 @@ Route::get('/', function () {
 })->name('home');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-
-    Route::get('dashboard', function () {
-        return Inertia::render('dashboard');
-    })->name('dashboard');
-
     // Common routes for both staff and admin with 'read' access
+    Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::middleware(['permission:read locations'])->get('/locations', [LocationController::class, 'index'])->name('locations.index');
     Route::middleware(['permission:read tags'])->get('/tags', [TagController::class, 'index'])->name('tags.index');
     Route::middleware(['permission:read readers'])->get('/readers', [ReaderController::class, 'index'])->name('readers.index');
     Route::middleware(['permission:read assets'])->get('/assets', [AssetController::class, 'index'])->name('assets.index');
-    Route::middleware(['permission:view asset location logs and history'])->get('/logs', [AssetLocationLogController::class, 'index'])->name('logs.index');
 
     // Admin-only routes (full CRUD)
     Route::middleware('role:admin')->group(function () {
@@ -46,8 +39,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         Route::resource('users', UserController::class);
         Route::delete('users/destroy/bulk', [UserController::class, 'bulkDestroy'])->name('users.bulk-destroy');
-        // Route::resource('roles', RoleController::class);
-        // Route::resource('permissions', PermissionController::class);
     });
 });
 

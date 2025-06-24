@@ -24,6 +24,7 @@ class DatabaseSeeder extends Seeder
             AssetSeeder::class,
             ReaderSeeder::class,
             ReaderTagSeeder::class,
+            AssetLocationLogSeeder::class,
         ]);
     }
 }

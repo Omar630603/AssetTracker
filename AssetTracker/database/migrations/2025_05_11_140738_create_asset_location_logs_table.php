@@ -20,6 +20,7 @@ return new class extends Migration
             $table->float('estimated_distance')->nullable();
             $table->string('type')->default('heartbeat');
             $table->string('status')->default('present');
+            $table->string('reader_name')->nullable();
             $table->timestamps();
         });
 

@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Spatie\Permission\Traits\HasRoles;
@@ -51,7 +52,7 @@ class User extends Authenticatable
     /**
      * Get the staff associated with the user.
      */
-    public function staff()
+    public function staff(): HasOne
     {
         return $this->hasOne(Staff::class);
     }
@@ -59,7 +60,7 @@ class User extends Authenticatable
     /**
      * Get the admin associated with the user.
      */
-    public function admin()
+    public function admin(): HasOne
     {
         return $this->hasOne(Admin::class);
     }

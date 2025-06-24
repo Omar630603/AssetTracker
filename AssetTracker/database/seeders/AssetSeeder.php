@@ -15,14 +15,24 @@ class AssetSeeder extends Seeder
      */
     public function run(): void
     {
-        $location = Location::where('name', 'Omar Room')->first();
-        $tag = Tag::where('name', 'Asset_Tag_01')->first();
+        for ($i = 1; $i <= 5; $i++) {
+            $location = Location::where('name', match ($i) {
+                1 => 'Omar Room',
+                2 => 'Aisha Lab',
+                3 => 'Fatima Office',
+                4 => 'Ali Hall',
+                5 => 'Hassan Storage',
+            })->first();
 
-        Asset::create([
-            'location_id' => $location->id,
-            'tag_id' => $tag->id,
-            'name' => 'Asset_01',
-            'type' => 'stationary'
-        ]);
+            $tag = Tag::where('name', "Asset_Tag_0$i")->first();
+
+            Asset::firstOrCreate([
+                'name' => "Asset_0$i",
+            ], [
+                'location_id' => $location?->id,
+                'tag_id' => $tag?->id,
+                'type' => 'stationary',
+            ]);
+        }
     }
 }

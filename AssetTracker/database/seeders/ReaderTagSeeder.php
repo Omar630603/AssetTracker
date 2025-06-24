@@ -14,11 +14,14 @@ class ReaderTagSeeder extends Seeder
      */
     public function run(): void
     {
-        $reader = Reader::where('name', 'Asset_Reader_01')->first();
-        $tag = Tag::where('name', 'Asset_Tag_01')->first();
-
-        if ($reader && $tag) {
-            $reader->tags()->attach($tag->id, ['created_at' => now(), 'updated_at' => now()]);
+        for ($i = 1; $i <= 5; $i++) {
+            $reader = Reader::where('name', "Asset_Reader_0$i")->first();
+            $tag = Tag::where('name', "Asset_Tag_0$i")->first();
+            if ($reader && $tag) {
+                $reader->tags()->syncWithoutDetaching([
+                    $tag->id => ['created_at' => now(), 'updated_at' => now()]
+                ]);
+            }
         }
     }
 }

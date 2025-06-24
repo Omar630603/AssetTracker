@@ -13,8 +13,8 @@ class TagSeeder extends Seeder
      */
     public function run(): void
     {
-        Tag::create([
-            'name' => 'Asset_Tag_01'
-        ]);
+        for ($i = 1; $i <= 5; $i++) {
+            Tag::firstOrCreate(['name' => "Asset_Tag_0$i"]);
+        }
     }
 }

@@ -135,6 +135,11 @@ export const columns: ColumnDef<Asset>[] = [
                             <DropdownMenuLabel>Actions</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem>
+                                <a href={`/assets/${asset.id}`} className="flex w-full">
+                                    View
+                                </a>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
                                 <a href={`/assets/${asset.id}/edit`} className="flex w-full">
                                     Edit
                                 </a>

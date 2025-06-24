@@ -10,9 +10,16 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Carbon\Carbon;
 
 class ReaderController extends Controller
 {
+    // Drastic change thresholds - can be moved to config later
+    const RSSI_THRESHOLD = 10;
+    const KALMAN_RSSI_THRESHOLD = 10;
+    const DISTANCE_THRESHOLD = 2;
+    const LOG_TIME_WINDOW = 300; // 5 minutes in seconds
+
     // Fetch reader configuration
     public function getConfig(Request $request)
     {
@@ -96,10 +103,19 @@ class ReaderController extends Controller
             ], 200);
         }
 
-        // Log the location data
+        // Log the location data with de-duplication logic
         DB::beginTransaction();
 
         try {
+            // Check for existing log within time window
+            $existingLog = AssetLocationLog::where('asset_id', $asset->id)
+                ->where('location_id', $locationId)
+                ->where('status', $request->status)
+                ->where('type', $request->type)
+                ->where('updated_at', '>=', Carbon::now()->subSeconds(self::LOG_TIME_WINDOW))
+                ->orderBy('updated_at', 'desc')
+                ->first();
+
             $logData = [
                 'asset_id' => $asset->id,
                 'location_id' => $locationId,
@@ -110,7 +126,66 @@ class ReaderController extends Controller
                 'status' => $request->status,
             ];
 
-            $locationLog = AssetLocationLog::create($logData);
+            $isDrasticChange = false;
+            $locationLog = null;
+
+            if ($existingLog) {
+                if ($request->rssi !== null && $existingLog->rssi !== null) {
+                    $rssiDiff = abs($request->rssi - $existingLog->rssi);
+                    if ($rssiDiff > self::RSSI_THRESHOLD) {
+                        $isDrasticChange = true;
+                    }
+                }
+
+                if (!$isDrasticChange && $request->kalman_rssi !== null && $existingLog->kalman_rssi !== null) {
+                    $kalmanDiff = abs($request->kalman_rssi - $existingLog->kalman_rssi);
+                    if ($kalmanDiff > self::KALMAN_RSSI_THRESHOLD) {
+                        $isDrasticChange = true;
+                    }
+                }
+
+                if (!$isDrasticChange && $request->estimated_distance !== null && $existingLog->estimated_distance !== null) {
+                    $distanceDiff = abs($request->estimated_distance - $existingLog->estimated_distance);
+                    if ($distanceDiff > self::DISTANCE_THRESHOLD) {
+                        $isDrasticChange = true;
+                    }
+                }
+
+                $lastReaderName = $existingLog->reader_name ?? null;
+                if ($lastReaderName && $lastReaderName !== $request->reader_name) {
+                    $isDrasticChange = true;
+                }
+
+                if (!$isDrasticChange) {
+                    $existingLog->update([
+                        'rssi' => $request->rssi,
+                        'kalman_rssi' => $request->kalman_rssi,
+                        'estimated_distance' => $request->estimated_distance,
+                        'updated_at' => Carbon::now(),
+                    ]);
+                    $locationLog = $existingLog;
+
+                    Log::info('Updated existing location log', [
+                        'log_id' => $existingLog->id,
+                        'asset_id' => $asset->id,
+                        'reader' => $request->reader_name,
+                    ]);
+                }
+            }
+
+            // Create new log if no existing log or drastic change detected
+            if (!$existingLog || $isDrasticChange) {
+                // Add reader_name to track which reader detected the asset
+                $logData['reader_name'] = $request->reader_name;
+                $locationLog = AssetLocationLog::create($logData);
+
+                Log::info('Created new location log', [
+                    'log_id' => $locationLog->id,
+                    'asset_id' => $asset->id,
+                    'reader' => $request->reader_name,
+                    'drastic_change' => $isDrasticChange,
+                ]);
+            }
 
             // Update asset location if present
             if ($request->status === 'present' && $asset->location_id !== $locationId) {
@@ -133,13 +208,14 @@ class ReaderController extends Controller
 
             return response()->json([
                 'status' => 'success',
-                'log_id' => $locationLog->id
+                'log_id' => $locationLog->id,
+                'action' => (!$existingLog || $isDrasticChange) ? 'created' : 'updated'
             ], 201);
 
         } catch (\Exception $e) {
             DB::rollback();
 
-            Log::error('Failed to create location log', [
+            Log::error('Failed to create/update location log', [
                 'error' => $e->getMessage(),
                 'reader_name' => $request->reader_name,
                 'device_name' => $request->device_name

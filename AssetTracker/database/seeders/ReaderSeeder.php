@@ -14,13 +14,22 @@ class ReaderSeeder extends Seeder
      */
     public function run(): void
     {
+        $locationNames = [
+            'Omar Room',
+            'Aisha Lab',
+            'Fatima Office',
+            'Ali Hall',
+            'Hassan Storage'
+        ];
 
-        $location = Location::where('name', 'Omar Room')->first();
-
-        Reader::create([
-            'location_id' => $location->id,
-            'name' => 'Asset_Reader_01',
-            'config' => Reader::$defaultConfig
-        ]);
+        foreach ($locationNames as $i => $locName) {
+            $location = Location::where('name', $locName)->first();
+            Reader::firstOrCreate([
+                'name' => "Asset_Reader_0" . ($i + 1),
+            ], [
+                'location_id' => $location?->id,
+                'config' => Reader::$defaultConfig
+            ]);
+        }
     }
 }
