@@ -17,8 +17,6 @@ class ReaderController extends Controller
     public function getConfig(Request $request)
     {
         $readerName = $request->input('reader_name');
-        $versionCheckOnly = $request->input('version_check', false);
-
         $reader = Reader::where('name', $readerName)->first();
 
         if (!$reader) {
@@ -26,14 +24,6 @@ class ReaderController extends Controller
         }
 
         $version = $reader->updated_at->timestamp;
-
-        if ($versionCheckOnly) {
-            return response()->json([
-                'version' => $version,
-                'reader_name' => $reader->name,
-                'last_updated' => $reader->updated_at->toISOString(),
-            ]);
-        }
 
         // Get config - use reader config if exists, otherwise default
         $config = $reader->config ?? Reader::$defaultConfig;
@@ -46,7 +36,6 @@ class ReaderController extends Controller
             'discovery_mode' => $reader->discovery_mode ?? 'pattern',
             'config' => $config,
             'version' => $version,
-            'last_updated' => $reader->updated_at->toISOString(),
         ];
 
         // Only include targets for explicit mode
@@ -69,7 +58,6 @@ class ReaderController extends Controller
             'rssi' => 'nullable|numeric',
             'kalman_rssi' => 'nullable|numeric',
             'estimated_distance' => 'nullable|numeric|min:-1',
-            'authenticated' => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -100,7 +88,6 @@ class ReaderController extends Controller
             Log::info('Unregistered device detected', [
                 'device_name' => $request->device_name,
                 'reader' => $request->reader_name,
-                'authenticated' => $request->authenticated ?? false,
             ]);
 
             return response()->json([

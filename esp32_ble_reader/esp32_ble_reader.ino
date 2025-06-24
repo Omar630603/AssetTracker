@@ -445,11 +445,31 @@ void performMultiSampleScan() {
   
   // Process and report all scanned devices
   Serial.printf("[SCAN] Found %d unique matching devices\n", scannedDevices.size());
-  
-  if (!scannedDevices.empty()) {
-    sendBatchReports();
+
+  if (discoveryMode == EXPLICIT) {
+    // For explicit mode, report found devices and send "not_found" for missing
+    std::vector<String> foundNames;
+    for (const auto& pair : scannedDevices) {
+      foundNames.push_back(pair.first);
+    }
+    if (!scannedDevices.empty()) {
+      sendBatchReports();
+    }
+    // Report for each explicit target, if not found, send "not_found"
+    for (const String& target : explicitTargets) {
+      if (std::find(foundNames.begin(), foundNames.end(), target) == foundNames.end()) {
+        // Not found, so report "not_found"
+        sendReport(target, -1.0, "not_found", -100.0, -100.0);
+        delay(50);
+      }
+    }
+  } else {
+    // Pattern mode: report as usual
+    if (!scannedDevices.empty()) {
+      sendBatchReports();
+    }
   }
-  
+
   // Cleanup old filters
   if (deviceFilters.size() > 30) {
     // Remove filters for devices not seen recently
