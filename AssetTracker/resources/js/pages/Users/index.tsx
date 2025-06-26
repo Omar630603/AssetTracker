@@ -109,11 +109,14 @@ export default function UsersIndex({ users, roles = [] }: UsersPageProps) {
         deleteSelected(route('users.bulk-destroy'), {
             onSuccess: () => {
                 toast.success(`${selectedUserIds.length} user(s) deleted successfully`);
-                setOpenDeleteSelectedModal(false);
-                setRowSelection({});
             },
             onError: () => {
                 toast.error('Failed to delete selected users');
+            },
+            onFinish: () => {
+                setOpenDeleteSelectedModal(false);
+                setRowSelection({});
+                setSelectedUserIds([]);
             }
         });
     };

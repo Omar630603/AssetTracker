@@ -98,11 +98,14 @@ export default function LocationsIndex({ locations }: LocationsPageProps) {
         deleteSelected(route('locations.bulk-destroy'), {
             onSuccess: () => {
                 toast.success(`${selectedLocationIds.length} location(s) deleted successfully`);
-                setOpenDeleteSelectedModal(false);
-                setRowSelection({});
             },
             onError: () => {
                 toast.error('Failed to delete selected locations');
+            },
+            onFinish: () => {
+                setOpenDeleteSelectedModal(false);
+                setRowSelection({});
+                setSelectedLocationIds([]);
             }
         });
     };

@@ -100,7 +100,7 @@ export default function Dashboard({
     const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
     const [refreshing, setRefreshing] = useState(false);
 
-    const { delete: deleteSelected, processing } = useForm({
+    const { setData: setDeleteData, delete: deleteSelected, processing } = useForm({
         ids: [] as string[],
     });
 
@@ -117,6 +117,7 @@ export default function Dashboard({
             .filter(Boolean);
 
         setSelectedLogIds(selectedIds);
+        setDeleteData('ids', selectedIds);
     }, [rowSelection, logsData]);
 
     const handleRefreshLogs = () => {
@@ -142,12 +143,15 @@ export default function Dashboard({
         deleteSelected(`dashboard/logs/destroy/bulk`, {
             onSuccess: () => {
                 toast.success("Selected logs deleted successfully");
-                setOpenDeleteModal(false);
-                setRowSelection({});
             },
             onError: () => {
                 toast.error("Failed to delete selected logs");
             },
+            onFinish: () => {
+                setOpenDeleteModal(false);
+                setRowSelection({});
+                setSelectedLogIds([]);
+            }
         });
     };
 
@@ -343,7 +347,7 @@ export default function Dashboard({
                         <DataTable
                             columns={columns}
                             data={logsData}
-                            searchColumn={["asset_name", "location_name"]}
+                            searchColumn={["asset_name", "location_name", "reader_name"]}
                             searchPlaceholder="Search logs..."
                             onRowSelectionChange={setRowSelection}
                             onRefresh={handleRefreshLogs}

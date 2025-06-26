@@ -97,11 +97,14 @@ export default function TagsIndex({ tags }: TagsPageProps) {
         deleteSelected(route('tags.bulk-destroy'), {
             onSuccess: () => {
                 toast.success(`${selectedTagIds.length} tag(s) deleted successfully`);
-                setOpenDeleteSelectedModal(false);
-                setRowSelection({});
             },
             onError: () => {
                 toast.error('Failed to delete selected tags');
+            },
+            onFinish: () => {
+                setOpenDeleteSelectedModal(false);
+                setRowSelection({});
+                setSelectedTagIds([]);
             }
         });
     };

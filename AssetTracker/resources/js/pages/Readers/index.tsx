@@ -128,11 +128,14 @@ export default function ReadersIndex({ readers, locations = [], tags = [], defau
         deleteSelected(route('readers.bulk-destroy'), {
             onSuccess: () => {
                 toast.success(`${selectedReaderIds.length} reader(s) deleted successfully`);
-                setOpenDeleteSelectedModal(false);
-                setRowSelection({});
             },
             onError: () => {
                 toast.error('Failed to delete selected readers');
+            },
+            onFinish: () => {
+                setOpenDeleteSelectedModal(false);
+                setRowSelection({});
+                setSelectedReaderIds([]);
             }
         });
     };

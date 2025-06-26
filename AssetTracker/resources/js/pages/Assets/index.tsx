@@ -112,11 +112,14 @@ export default function AssetsIndex({ assets, asset_types = [], available_tags =
         deleteSelected(route('assets.bulk-destroy'), {
             onSuccess: () => {
                 toast.success(`${selectedAssetIds.length} asset(s) deleted successfully`);
-                setOpenDeleteSelectedModal(false);
-                setRowSelection({});
             },
             onError: () => {
                 toast.error('Failed to delete selected assets');
+            },
+            onFinish: () => {
+                setOpenDeleteSelectedModal(false);
+                setRowSelection({});
+                setSelectedAssetIds([]);
             }
         });
     };
