@@ -142,7 +142,7 @@ class DashboardController extends Controller
         ]);
     }
 
-    public function deleteLogs(Request $request)
+    public function bulkDestroyLogs(Request $request)
     {
         $request->validate([
             'ids' => 'required|array',
