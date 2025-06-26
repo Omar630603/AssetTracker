@@ -25,6 +25,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Admin-only routes (full CRUD)
     Route::middleware('role:admin')->group(function () {
+        Route::delete('dashboard/logs/destroy/bulk', [DashboardController::class, 'bulkDestroyLogs'])->name('dashboard.logs.bulk-destroy');
+
         Route::resource('locations', LocationController::class)->except(['index']);
         Route::delete('locations/destroy/bulk', [LocationController::class, 'bulkDestroy'])->name('locations.bulk-destroy');
 

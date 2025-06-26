@@ -139,7 +139,7 @@ export default function Dashboard({
     const handleDeleteSelected = () => {
         if (selectedLogIds.length === 0) return;
 
-        deleteSelected(`/dashboard/logs`, {
+        deleteSelected(`dashboard/logs/destroy/bulk`, {
             onSuccess: () => {
                 toast.success("Selected logs deleted successfully");
                 setOpenDeleteModal(false);
