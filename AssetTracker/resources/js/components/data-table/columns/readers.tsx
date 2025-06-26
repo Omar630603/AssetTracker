@@ -29,6 +29,7 @@ export interface Reader {
     discovery_mode?: 'pattern' | 'explicit',
     config: any,
     config_fetched_at?: string,
+    is_active?: boolean,
     tags?: {
         id: string,
         name: string,
@@ -151,6 +152,7 @@ export const columns: ColumnDef<Reader>[] = [
             const config = row.getValue("config") as string;
             const readerName = row.getValue("name") as string;
             const [openConfigModal, setOpenConfigModal] = useState(false);
+            const isActive = row.original.is_active ?? false;
             const last_time_config_fetched = row.original.config_fetched_at as string | undefined;
 
             return (
@@ -163,6 +165,12 @@ export const columns: ColumnDef<Reader>[] = [
                     >
                         View <Eye />
                     </Button>
+                    <Badge
+                        variant={isActive ? "default" : "destructive"}
+                        className="ml-2"
+                    >
+                        {isActive ? "Active" : "Inactive"}
+                    </Badge>
                     {last_time_config_fetched && (
                         <span className="ml-2 text-xs text-muted-foreground">
                             Last fetched: {new Date(last_time_config_fetched).toLocaleString()}
@@ -199,6 +207,9 @@ export const columns: ColumnDef<Reader>[] = [
             const [openDeleteModal, setDeleteModal] = useState(false);
             const { delete: destroy, processing } = useForm();
 
+            const [openSwitchModal, setOpenSwitchModal] = useState(false);
+            const {post: switchPost, processing: processingSwitch} = useForm();
+
             const handleDelete = () => {
                 destroy(`/readers/${reader.id}`, {
                     onSuccess: () => {
@@ -211,6 +222,23 @@ export const columns: ColumnDef<Reader>[] = [
                     onError: () => {
                         toast.error("Error", {
                             description: `Failed to delete reader "${reader.name}".`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
+                        });
+                    },
+                });
+            };
+
+            const handleSwitch = (action: 'enable' | 'disable') => {
+                switchPost(`/readers/${reader.id}/switch`, {
+                    onSuccess: () => {
+                        setOpenSwitchModal(false);
+                        toast.success(`Reader ${action === 'enable' ? 'enabled' : 'disabled'} successfully`, {
+                            description: `Reader "${reader.name}" has been ${action === 'enable' ? 'enabled' : 'disabled'}.`,
+                            descriptionClassName: "!text-gray-800 dark:!text-gray-400"
+                        });
+                    },
+                    onError: () => {
+                        toast.error(`Failed to ${action} reader "${reader.name}"`, {
                             descriptionClassName: "!text-gray-800 dark:!text-gray-400"
                         });
                     },
@@ -234,6 +262,14 @@ export const columns: ColumnDef<Reader>[] = [
                                     Edit
                                 </a>
                             </DropdownMenuItem>
+                            <DropdownMenuItem
+                                onSelect={(e) => {
+                                    e.preventDefault();
+                                    setOpenSwitchModal(true);
+                                }}
+                            >
+                                {reader.is_active ? 'Disable' : 'Enable'}
+                            </DropdownMenuItem>
                             <DropdownMenuItem className="text-red-500"
                                 onSelect={(e) => { e.preventDefault(); setDeleteModal(true); }}
                             >
@@ -255,6 +291,23 @@ export const columns: ColumnDef<Reader>[] = [
                             <AlertTitle>Warning</AlertTitle>
                             <AlertDescription>
                                 Are you sure you want to delete this reader? This action cannot be undone.
+                            </AlertDescription>
+                        </Alert>
+                    </PopupModal>
+                    <PopupModal
+                        isOpen={openSwitchModal}
+                        onClose={() => setOpenSwitchModal(false)}
+                        title={`${reader.is_active ? 'Disable' : 'Enable'} Reader - ${readerName}`}
+                        size="md"
+                        isLoading={processingSwitch}
+                        onPrimaryAction={() => handleSwitch(reader.is_active ? 'disable' : 'enable')}
+                        variant="confirm"
+                    >
+                        <Alert>
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertTitle>{reader.is_active ? 'Disable' : 'Enable'} Reader</AlertTitle>
+                            <AlertDescription>
+                                Are you sure you want to {reader.is_active ? 'disable' : 'enable'} this reader? This will {reader.is_active ? 'stop' : 'start'} its operations.
                             </AlertDescription>
                         </Alert>
                     </PopupModal>

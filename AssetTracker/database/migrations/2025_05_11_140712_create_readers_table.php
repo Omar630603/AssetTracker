@@ -18,6 +18,7 @@ return new class extends Migration
             $table->enum('discovery_mode', ['pattern', 'explicit'])->default('explicit');
             $table->json('config')->nullable();
             $table->timestamp('config_fetched_at')->nullable();
+            $table->boolean('is_active')->default(true);
             $table->timestamps();
         });
 

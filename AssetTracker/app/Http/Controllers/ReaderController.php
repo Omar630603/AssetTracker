@@ -20,6 +20,7 @@ class ReaderController extends Controller
                 'discovery_mode' => $reader->discovery_mode,
                 'config' => $reader->config,
                 'config_fetched_at' => $reader->config_fetched_at ? $reader->config_fetched_at : null,
+                'is_active' => $reader->is_active,
                 'tags' => $reader->tags->map(function ($tag) {
                     return [
                         'id' => $tag->id,
@@ -178,5 +179,14 @@ class ReaderController extends Controller
                 'form' => 'An unexpected error occurred while deleting the reader(s).',
             ])->withInput();
         }
+    }
+
+    public function switch(Request $request, $id)
+    {
+        $reader = Reader::findOrFail($id);
+        $reader->is_active = !$reader->is_active;
+        $reader->save();
+
+        return redirect()->route('readers.index')->with('success', 'Reader status updated successfully');
     }
 }

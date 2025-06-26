@@ -30,6 +30,10 @@ class ReaderController extends Controller
             return response()->json(['error' => 'Reader not found'], 404);
         }
 
+        if (!$reader->is_active) {
+            return response()->json(['error' => 'Reader is inactive'], 403);
+        }
+
         $version = $reader->updated_at->timestamp;
 
         // Get config - use reader config if exists, otherwise default
@@ -80,6 +84,10 @@ class ReaderController extends Controller
         $reader = Reader::where('name', $request->reader_name)->first();
         if (!$reader) {
             return response()->json(['error' => 'Reader not found'], 404);
+        }
+
+        if (!$reader->is_active) {
+            return response()->json(['error' => 'Reader is inactive'], 403);
         }
 
         $locationId = $reader->location_id;

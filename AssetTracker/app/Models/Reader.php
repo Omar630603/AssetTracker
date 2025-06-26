@@ -15,10 +15,12 @@ class Reader extends Model
         'discovery_mode',
         'config',
         'config_fetched_at',
+        'is_active',
     ];
 
     protected $casts = [
         'config' => 'array',
+        'is_active' => 'boolean',
     ];
 
     public static array $defaultConfig = [
