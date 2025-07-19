@@ -57,7 +57,7 @@ export const columns: ColumnDef<AssetLog>[] = [
                     }
                     className="text-xs"
                 >
-                    {status.replace('_', ' ')}
+                    {status.replace(/_/g, ' ')}
                 </Badge>
             );
         },
@@ -69,7 +69,7 @@ export const columns: ColumnDef<AssetLog>[] = [
         ),
         cell: ({ row }) => {
             const rssi = row.getValue("rssi") as number | null;
-            return <span className="font-mono text-sm">{rssi || '-'}</span>;
+            return <span className="font-mono text-sm">{`${rssi} dBm` || '-'}</span>;
         },
     },
     {
@@ -79,7 +79,7 @@ export const columns: ColumnDef<AssetLog>[] = [
         ),
         cell: ({ row }) => {
             const kalman_rssi = row.getValue("kalman_rssi") as number | null;
-            return <span className="font-mono text-sm">{kalman_rssi || '-'}</span>;
+            return <span className="font-mono text-sm">{`${kalman_rssi} dBm` || '-'}</span>;
         },
     },
     {
@@ -89,7 +89,7 @@ export const columns: ColumnDef<AssetLog>[] = [
         ),
         cell: ({ row }) => {
             const distance = row.getValue("distance") as number | null;
-            return <span className="text-sm">{distance ? `${distance}m` : '-'}</span>;
+            return <span className="text-sm">{distance ? `${distance} m` : '-'}</span>;
         },
     },
     {

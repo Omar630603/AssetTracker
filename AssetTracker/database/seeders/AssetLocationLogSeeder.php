@@ -17,6 +17,7 @@ class AssetLocationLogSeeder extends Seeder
         $locations = Location::all();
         $readers = Reader::all();
         $now = Carbon::now();
+        $status_options = ['present', 'not_found', 'out_of_range'];
 
         // For each asset, create logs across all locations and readers
         foreach ($assets as $asset) {
@@ -28,13 +29,14 @@ class AssetLocationLogSeeder extends Seeder
                 $rssi = rand(-75, -55);
                 $kalmanRssi = $rssi + rand(-2, 2);
                 $distance = round(rand(2, 10) + rand(0, 100) / 100, 2);
-                $status = (rand(0, 1) ? 'active' : 'idle');
+                $status = $status_options[array_rand($status_options)];
+                $type = $status === 'present' ? 'heartbeat' : 'alert';
 
                 AssetLocationLog::create([
                     'asset_id' => $asset->id,
                     'location_id' => $loc->id,
                     'reader_name' => $reader->name,
-                    'type' => 'auto',
+                    'type' => $type,
                     'status' => $status,
                     'rssi' => $rssi,
                     'kalman_rssi' => $kalmanRssi,

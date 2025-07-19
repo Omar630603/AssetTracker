@@ -10,7 +10,7 @@ import { DataTable } from '@/components/data-table';
 import { AssetLog, columns } from '@/components/data-table/columns/asset-logs';
 import { type BreadcrumbItem } from '@/types';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
 interface AssetData {
@@ -40,6 +40,45 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 export default function AssetShow({ asset, recentLogs }: AssetShowProps) {
     const [refreshing, setRefreshing] = useState(false);
+    const [autoRefresh, setAutoRefresh] = useState(true);
+    const intervalRef = useRef<NodeJS.Timeout | null>(null);
+
+    useEffect(() => {
+        if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+        }
+
+        if (!autoRefresh || refreshing) return;
+
+        intervalRef.current = setInterval(() => {
+            if (refreshing) return;
+            router.reload({
+                only: ["recentLogs"],
+                onSuccess: () => {
+                    console.log('Auto-refresh completed');
+                },
+                onError: () => {
+                    console.error('Auto-refresh failed');
+                }
+            });
+        }, 10000);
+
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
+        };
+    }, [autoRefresh]);
+
+    useEffect(() => {
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+        };
+    }, []);
 
     const handleRefreshLogs = () => {
         setRefreshing(true);
@@ -55,6 +94,11 @@ export default function AssetShow({ asset, recentLogs }: AssetShowProps) {
                 }
             });
         }, 1000);
+    };
+
+    const labelMap = {
+        rssi: "RSSI dBm",
+        kalman_rssi: "Kalman RSSI dBm"
     };
 
     return (
@@ -178,6 +222,7 @@ export default function AssetShow({ asset, recentLogs }: AssetShowProps) {
                                                 labelStyle={{
                                                     color: "#8e8e93",
                                                 }}
+                                                formatter={(value, name) => [value, labelMap[name as keyof typeof labelMap] || name]}
                                             />
                                             <Legend
                                                 verticalAlign="top"
@@ -187,6 +232,7 @@ export default function AssetShow({ asset, recentLogs }: AssetShowProps) {
                                             <Line
                                                 type="monotone"
                                                 dataKey="rssi"
+                                                name="RSSI dBm"
                                                 stroke="#444"
                                                 strokeWidth={2.5}
                                                 dot={false}
@@ -195,6 +241,7 @@ export default function AssetShow({ asset, recentLogs }: AssetShowProps) {
                                             <Line
                                                 type="monotone"
                                                 dataKey="kalman_rssi"
+                                                name="Kalman RSSI dBm"
                                                 stroke="#1e90ff"
                                                 strokeWidth={2}
                                                 dot={false}
@@ -208,10 +255,12 @@ export default function AssetShow({ asset, recentLogs }: AssetShowProps) {
                         <DataTable
                             columns={columns}
                             data={recentLogs}
-                            searchColumn={["location_name", "status"]}
+                            searchColumn={["location_name", "type", "status", "reader_name"]}
                             searchPlaceholder="Search logs..."
                             onRefresh={handleRefreshLogs}
                             isRefreshing={refreshing}
+                            setAutoRefresh={setAutoRefresh}
+                            autoRefresh={autoRefresh}
                         />
                     </CardContent>
                 </Card>

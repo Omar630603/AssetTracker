@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Head, useForm, router } from "@inertiajs/react";
 import {
     AlertCircle,
@@ -99,6 +99,8 @@ export default function Dashboard({
     const [rowSelection, setRowSelection] = useState({});
     const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
     const [refreshing, setRefreshing] = useState(false);
+    const [autoRefresh, setAutoRefresh] = useState(true);
+    const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
     const { setData: setDeleteData, delete: deleteSelected, processing } = useForm({
         ids: [] as string[],
@@ -119,6 +121,44 @@ export default function Dashboard({
         setSelectedLogIds(selectedIds);
         setDeleteData('ids', selectedIds);
     }, [rowSelection, logsData]);
+
+    useEffect(() => {
+        if (intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+        }
+
+        if (!autoRefresh || refreshing) return;
+
+        intervalRef.current = setInterval(() => {
+            if (refreshing) return;
+            router.reload({
+                only: ["logs"],
+                onSuccess: () => {
+                    console.log('Auto-refresh completed');
+                },
+                onError: () => {
+                    console.error('Auto-refresh failed');
+                }
+            });
+        }, 10000);
+
+        return () => {
+            if (intervalRef.current) {
+                console.log('Cleaning up auto-refresh interval');
+                clearInterval(intervalRef.current);
+                intervalRef.current = null;
+            }
+        };
+    }, [autoRefresh]);
+
+    useEffect(() => {
+        return () => {
+            if (intervalRef.current) {
+                clearInterval(intervalRef.current);
+            }
+        };
+    }, []);
 
     const handleRefreshLogs = () => {
         setRefreshing(true);
@@ -347,11 +387,13 @@ export default function Dashboard({
                         <DataTable
                             columns={columns}
                             data={logsData}
-                            searchColumn={["asset_name", "location_name", "reader_name"]}
+                            searchColumn={["asset_name", "location_name", "type", "status", "reader_name"]}
                             searchPlaceholder="Search logs..."
                             onRowSelectionChange={setRowSelection}
                             onRefresh={handleRefreshLogs}
                             isRefreshing={refreshing}
+                            setAutoRefresh={setAutoRefresh}
+                            autoRefresh={autoRefresh}
                             state={{ rowSelection }}
                         />
                     </CardContent>

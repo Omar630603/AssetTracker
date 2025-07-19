@@ -38,6 +38,8 @@ interface DataTableProps<TData, TValue> {
     onRowSelectionChange?: (value: RowSelectionState) => void
     onRefresh?: () => void;
     isRefreshing?: boolean;
+    setAutoRefresh?: React.Dispatch<React.SetStateAction<boolean>>;
+    autoRefresh?: boolean;
     state?: {
         rowSelection?: RowSelectionState
     }
@@ -51,6 +53,8 @@ export function DataTable<TData, TValue>({
     onRowSelectionChange,
     onRefresh,
     isRefreshing = false,
+    setAutoRefresh,
+    autoRefresh = false,
     state = {},
 }: DataTableProps<TData, TValue>) {
     const [sorting, setSorting] = React.useState<SortingState>([])
@@ -104,13 +108,39 @@ export function DataTable<TData, TValue>({
 
     return (
         <div className="space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+                {setAutoRefresh && (
+                    <button
+                        type="button"
+                        onClick={() => setAutoRefresh(!autoRefresh)}
+                        className={
+                            `flex items-center gap-2 h-9 rounded-md border border-input px-3 py-1 text-sm shadow-xs transition-colors outline-none
+                            disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]
+                            ${autoRefresh
+                                ? 'bg-green-100 text-green-900 border-green-300 dark:bg-green-800 dark:text-green-100 dark:border-green-600'
+                                : 'bg-gray-100 text-gray-900 border-gray-300 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600'
+                            }
+                            cursor-pointer`
+                        }
+                        style={{ width: "auto" }}
+                        title={autoRefresh ? "Turn off auto-refresh" : "Turn on auto-refresh"}
+                    >
+                        <span
+                            className={`inline-block w-2 h-2 rounded-full mr-2 ${
+                                autoRefresh
+                                    ? "bg-green-500 animate-pulse"
+                                    : "bg-gray-400"
+                            }`}
+                        />
+                        Auto Refresh 10s
+                    </button>
+                )}
                 {onRefresh && (
                     <button
                         type="button"
                         onClick={onRefresh}
                         disabled={isRefreshing}
-                        className="flex items-center gap-2 h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] text-foreground mr-2 cursor-pointer"
+                        className="flex items-center gap-2 h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors outline-none disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] text-foreground cursor-pointer"
                         style={{ width: "auto" }}
                         title="Refresh"
                     >

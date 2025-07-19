@@ -101,7 +101,7 @@ export const columns: ColumnDef<LocationLog>[] = [
                     }
                     className="text-xs"
                 >
-                    {status.replace('_', ' ')}
+                    {status.replace(/_/g, ' ')}
                 </Badge>
             );
         },
@@ -113,7 +113,7 @@ export const columns: ColumnDef<LocationLog>[] = [
         ),
         cell: ({ row }) => {
             const rssi = row.getValue("rssi") as number | null;
-            return <span className="font-mono text-sm">{rssi || '-'}</span>;
+            return <span className="font-mono text-sm">{`${rssi} dBm` || '-'}</span>;
         },
     },
     {
@@ -123,7 +123,7 @@ export const columns: ColumnDef<LocationLog>[] = [
         ),
         cell: ({ row }) => {
             const distance = row.getValue("distance") as number | null;
-            return <span className="text-sm">{distance ? `${distance}m` : '-'}</span>;
+            return <span className="text-sm">{distance ? `${distance} m` : '-'}</span>;
         },
     },
     {
