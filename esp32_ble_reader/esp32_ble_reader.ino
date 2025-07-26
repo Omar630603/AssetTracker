@@ -165,25 +165,81 @@ float calculateDistance(float rssi) {
   return constrain(distance, 0.01, 100.0);
 }
 
+bool hasInternet() {
+  HTTPClient http;
+  http.setTimeout(3000);
+  http.begin("http://clients3.google.com/generate_204"); // fast, no content
+  int code = http.GET();
+  http.end();
+  return (code == 204);
+}
+
 // Connect to WiFi
 void connectWiFi() {
-  Serial.println("\n[WIFI] Connecting to " + String(ssid));
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-  
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 30) {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\n[WIFI] Connected!");
-    Serial.println("[WIFI] IP: " + WiFi.localIP().toString());
-    Serial.println("[WIFI] RSSI: " + String(WiFi.RSSI()) + " dBm");
-  } else {
-    Serial.println("\n[WIFI] Failed to connect!");
+  int defaultTries = 0;
+  while (true) {
+    Serial.println("\n[WIFI] Trying default Wi-Fi...");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 30) {
+      delay(500);
+      Serial.print(".");
+      attempts++;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("\n[WIFI] Connected to default Wi-Fi!");
+      if (hasInternet()) {
+        Serial.println("[WIFI] Internet available!");
+        return;
+      }
+      Serial.println("[WIFI] No internet. Disconnecting...");
+      WiFi.disconnect(true);
+    } else {
+      Serial.println("\n[WIFI] Failed to connect to default Wi-Fi.");
+    }
+
+    // Try open networks
+    Serial.println("[WIFI] Scanning for open Wi-Fi...");
+    int n = WiFi.scanNetworks();
+    bool found = false;
+    for (int i = 0; i < n; ++i) {
+      String openSSID = WiFi.SSID(i);
+      int encType = WiFi.encryptionType(i);
+      if (encType == WIFI_AUTH_OPEN) {
+        Serial.println("[WIFI] Trying open network: " + openSSID);
+        int openTries = 0;
+        while (openTries < 3) {
+          WiFi.begin(openSSID.c_str());
+          int t = 0;
+          while (WiFi.status() != WL_CONNECTED && t < 20) {
+            delay(500);
+            Serial.print(".");
+            t++;
+          }
+          if (WiFi.status() == WL_CONNECTED) {
+            Serial.println("\n[WIFI] Connected to open: " + openSSID);
+            if (hasInternet()) {
+              Serial.println("[WIFI] Internet available on open network!");
+              return;
+            } else {
+              Serial.println("[WIFI] No internet on open network. Disconnecting...");
+              WiFi.disconnect(true);
+            }
+          }
+          openTries++;
+        }
+      }
+    }
+    Serial.println("[WIFI] No open networks with internet found. Retrying default Wi-Fi...");
+    delay(5000); // Wait before retrying
+    defaultTries++;
+    if (defaultTries > 10) {
+      Serial.println("[WIFI] Too many failures, restarting...");
+      ESP.restart();
+    }
   }
 }
 
