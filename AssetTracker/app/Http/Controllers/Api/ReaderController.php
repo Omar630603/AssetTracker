@@ -62,16 +62,18 @@ class ReaderController extends Controller
     }
 
     // Receive location logs from readers
-    public function receiveLocationLog(Request $request)
+    public function receiveLocationLogs(Request $request)
     {
+        // Validate the request
         $validator = Validator::make($request->all(), [
             'reader_name' => 'required|string|max:255',
-            'device_name' => 'required|string|max:255',
-            'type' => 'required|string|in:heartbeat,alert',
-            'status' => 'required|string|in:present,not_found,out_of_range',
-            'rssi' => 'nullable|numeric',
-            'kalman_rssi' => 'nullable|numeric',
-            'estimated_distance' => 'nullable|numeric|min:-1',
+            'devices' => 'required|array|min:1',
+            'devices.*.device_name' => 'required|string|max:255',
+            'devices.*.type' => 'required|string|in:heartbeat,alert',
+            'devices.*.status' => 'required|string|in:present,not_found,out_of_range',
+            'devices.*.rssi' => 'nullable|numeric',
+            'devices.*.kalman_rssi' => 'nullable|numeric',
+            'devices.*.estimated_distance' => 'nullable|numeric|min:-1',
         ]);
 
         if ($validator->fails()) {
@@ -81,159 +83,167 @@ class ReaderController extends Controller
             ], 400);
         }
 
+        // Look up the reader once for all devices
         $reader = Reader::where('name', $request->reader_name)->first();
         if (!$reader) {
             return response()->json(['error' => 'Reader not found'], 404);
         }
-
         if (!$reader->is_active) {
             return response()->json(['error' => 'Reader is inactive'], 403);
         }
-
         $locationId = $reader->location_id;
         if (!$locationId) {
             Log::warning('Reader has no location assigned', ['reader_name' => $request->reader_name]);
             return response()->json(['error' => 'Reader location not configured'], 400);
         }
 
-        // Look up asset
-        $asset = Asset::whereHas('tag', function ($query) use ($request) {
-            $query->where('name', $request->device_name);
-        })->first();
-
-        if (!$asset) {
-            // Device not registered - just log and return
-            Log::info('Unregistered device detected', [
-                'device_name' => $request->device_name,
-                'reader' => $request->reader_name,
-            ]);
-
-            return response()->json([
-                'status' => 'warning',
-                'message' => 'Device not registered'
-            ], 200);
-        }
-
-        // Log the location data with de-duplication logic
+        $results = [];
         DB::beginTransaction();
 
         try {
-            // Check for existing log within time window
-            $existingLog = AssetLocationLog::where('asset_id', $asset->id)
-                ->where('location_id', $locationId)
-                ->where('status', $request->status)
-                ->where('type', $request->type)
-                ->where('updated_at', '>=', Carbon::now()->subSeconds(self::LOG_TIME_WINDOW))
-                ->orderBy('updated_at', 'desc')
-                ->first();
+            foreach ($request->devices as $deviceData) {
+                // Find the asset by tag name
+                $asset = Asset::whereHas('tag', function ($query) use ($deviceData) {
+                    $query->where('name', $deviceData['device_name']);
+                })->first();
 
-            $logData = [
-                'asset_id' => $asset->id,
-                'location_id' => $locationId,
-                'rssi' => $request->rssi,
-                'kalman_rssi' => $request->kalman_rssi,
-                'estimated_distance' => $request->estimated_distance,
-                'type' => $request->type,
-                'status' => $request->status,
-            ];
-
-            $isDrasticChange = false;
-            $locationLog = null;
-
-            if ($existingLog) {
-                if ($request->rssi !== null && $existingLog->rssi !== null) {
-                    $rssiDiff = abs($request->rssi - $existingLog->rssi);
-                    if ($rssiDiff > self::RSSI_THRESHOLD) {
-                        $isDrasticChange = true;
-                    }
-                }
-
-                if (!$isDrasticChange && $request->kalman_rssi !== null && $existingLog->kalman_rssi !== null) {
-                    $kalmanDiff = abs($request->kalman_rssi - $existingLog->kalman_rssi);
-                    if ($kalmanDiff > self::KALMAN_RSSI_THRESHOLD) {
-                        $isDrasticChange = true;
-                    }
-                }
-
-                if (!$isDrasticChange && $request->estimated_distance !== null && $existingLog->estimated_distance !== null) {
-                    $distanceDiff = abs($request->estimated_distance - $existingLog->estimated_distance);
-                    if ($distanceDiff > self::DISTANCE_THRESHOLD) {
-                        $isDrasticChange = true;
-                    }
-                }
-
-                $lastReaderName = $existingLog->reader_name ?? null;
-                if ($lastReaderName && $lastReaderName !== $request->reader_name) {
-                    $isDrasticChange = true;
-                }
-
-                if (!$isDrasticChange) {
-                    $existingLog->update([
-                        'rssi' => $request->rssi,
-                        'kalman_rssi' => $request->kalman_rssi,
-                        'estimated_distance' => $request->estimated_distance,
-                        'updated_at' => Carbon::now(),
+                if (!$asset) {
+                    Log::info('Unregistered device detected', [
+                        'device_name' => $deviceData['device_name'],
+                        'reader' => $request->reader_name,
                     ]);
-                    $locationLog = $existingLog;
+                    $results[] = [
+                        'device_name' => $deviceData['device_name'],
+                        'status' => 'warning',
+                        'message' => 'Device not registered',
+                    ];
+                    continue;
+                }
 
-                    Log::info('Updated existing location log', [
-                        'log_id' => $existingLog->id,
+                // Log the location data with de-duplication logic
+                $existingLog = AssetLocationLog::where('asset_id', $asset->id)
+                    ->where('location_id', $locationId)
+                    ->where('status', $deviceData['status'])
+                    ->where('type', $deviceData['type'])
+                    ->where('updated_at', '>=', Carbon::now()->subSeconds(self::LOG_TIME_WINDOW))
+                    ->orderBy('updated_at', 'desc')
+                    ->first();
+
+                $logData = [
+                    'asset_id' => $asset->id,
+                    'location_id' => $locationId,
+                    'rssi' => $deviceData['rssi'] ?? null,
+                    'kalman_rssi' => $deviceData['kalman_rssi'] ?? null,
+                    'estimated_distance' => $deviceData['estimated_distance'] ?? null,
+                    'type' => $deviceData['type'],
+                    'status' => $deviceData['status'],
+                ];
+
+                $isDrasticChange = false;
+                $locationLog = null;
+
+                if ($existingLog) {
+                    if (isset($deviceData['rssi']) && $existingLog->rssi !== null) {
+                        $rssiDiff = abs($deviceData['rssi'] - $existingLog->rssi);
+                        if ($rssiDiff > self::RSSI_THRESHOLD) {
+                            $isDrasticChange = true;
+                        }
+                    }
+                    if (
+                        !$isDrasticChange &&
+                        isset($deviceData['kalman_rssi']) &&
+                        $existingLog->kalman_rssi !== null
+                    ) {
+                        $kalmanDiff = abs($deviceData['kalman_rssi'] - $existingLog->kalman_rssi);
+                        if ($kalmanDiff > self::KALMAN_RSSI_THRESHOLD) {
+                            $isDrasticChange = true;
+                        }
+                    }
+                    if (
+                        !$isDrasticChange &&
+                        isset($deviceData['estimated_distance']) &&
+                        $existingLog->estimated_distance !== null
+                    ) {
+                        $distanceDiff = abs($deviceData['estimated_distance'] - $existingLog->estimated_distance);
+                        if ($distanceDiff > self::DISTANCE_THRESHOLD) {
+                            $isDrasticChange = true;
+                        }
+                    }
+                    $lastReaderName = $existingLog->reader_name ?? null;
+                    if ($lastReaderName && $lastReaderName !== $request->reader_name) {
+                        $isDrasticChange = true;
+                    }
+
+                    if (!$isDrasticChange) {
+                        $existingLog->update([
+                            'rssi' => $deviceData['rssi'] ?? null,
+                            'kalman_rssi' => $deviceData['kalman_rssi'] ?? null,
+                            'estimated_distance' => $deviceData['estimated_distance'] ?? null,
+                            'updated_at' => Carbon::now(),
+                        ]);
+                        $locationLog = $existingLog;
+
+                        Log::info('Updated existing location log', [
+                            'log_id' => $existingLog->id,
+                            'asset_id' => $asset->id,
+                            'reader' => $request->reader_name,
+                        ]);
+                    }
+                }
+
+                // Create new log if no existing log or drastic change detected
+                if (!$existingLog || $isDrasticChange) {
+                    $logData['reader_name'] = $request->reader_name;
+                    $locationLog = AssetLocationLog::create($logData);
+
+                    Log::info('Created new location log', [
+                        'log_id' => $locationLog->id,
                         'asset_id' => $asset->id,
+                        'reader' => $request->reader_name,
+                        'drastic_change' => $isDrasticChange,
+                    ]);
+                }
+
+                // Update asset location if present
+                if (
+                    $deviceData['status'] === 'present' &&
+                    $asset->location_id !== $locationId
+                ) {
+                    $asset->update(['location_id' => $locationId]);
+                }
+
+                // Log alerts
+                if ($deviceData['type'] === 'alert') {
+                    Log::warning('Asset Alert', [
+                        'asset_id' => $asset->id,
+                        'asset_name' => $asset->name,
+                        'status' => $deviceData['status'],
+                        'location_id' => $locationId,
+                        'distance' => $deviceData['estimated_distance'] ?? null,
                         'reader' => $request->reader_name,
                     ]);
                 }
-            }
 
-            // Create new log if no existing log or drastic change detected
-            if (!$existingLog || $isDrasticChange) {
-                // Add reader_name to track which reader detected the asset
-                $logData['reader_name'] = $request->reader_name;
-                $locationLog = AssetLocationLog::create($logData);
-
-                Log::info('Created new location log', [
+                $results[] = [
+                    'device_name' => $deviceData['device_name'],
+                    'status' => 'success',
                     'log_id' => $locationLog->id,
-                    'asset_id' => $asset->id,
-                    'reader' => $request->reader_name,
-                    'drastic_change' => $isDrasticChange,
-                ]);
-            }
-
-            // Update asset location if present
-            if ($request->status === 'present' && $asset->location_id !== $locationId) {
-                $asset->update(['location_id' => $locationId]);
+                    'action' => (!$existingLog || $isDrasticChange) ? 'created' : 'updated',
+                ];
             }
 
             DB::commit();
-
-            // Log alerts
-            if ($request->type === 'alert') {
-                Log::warning('Asset Alert', [
-                    'asset_id' => $asset->id,
-                    'asset_name' => $asset->name,
-                    'status' => $request->status,
-                    'location_id' => $locationId,
-                    'distance' => $request->estimated_distance,
-                    'reader' => $request->reader_name,
-                ]);
-            }
-
-            return response()->json([
-                'status' => 'success',
-                'log_id' => $locationLog->id,
-                'action' => (!$existingLog || $isDrasticChange) ? 'created' : 'updated'
-            ], 201);
+            return response()->json(['results' => $results], 201);
 
         } catch (\Exception $e) {
             DB::rollback();
-
-            Log::error('Failed to create/update location log', [
+            Log::error('Failed to create/update location logs', [
                 'error' => $e->getMessage(),
                 'reader_name' => $request->reader_name,
-                'device_name' => $request->device_name
             ]);
-
             return response()->json([
-                'error' => 'Failed to record log'
+                'error' => 'Failed to record logs',
+                'details' => $e->getMessage(),
             ], 500);
         }
     }

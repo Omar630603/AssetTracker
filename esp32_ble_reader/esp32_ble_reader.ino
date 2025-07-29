@@ -357,84 +357,103 @@ bool fetchAndApplyConfig() {
 
 // Send batch reports for multiple devices
 bool sendBatchReports() {
-  if (scannedDevices.empty() || WiFi.status() != WL_CONNECTED) return false;
-  
-  int successCount = 0;
-  
-  for (auto& pair : scannedDevices) {
-    DeviceData& device = pair.second;
-    
-    // Skip if no valid samples
-    if (device.sampleCount == 0) continue;
-    
-    // Average RSSI from multiple samples
-    float avgRssi = device.rssiSum / device.sampleCount;
-    
-    // Apply Kalman filter
-    if (deviceFilters.find(device.name) == deviceFilters.end()) {
-      deviceFilters[device.name] = KalmanFilter(config.kalman.Q, config.kalman.R, 
-                                               config.kalman.P, config.kalman.initial);
-    }
-    
-    device.filteredRssi = deviceFilters[device.name].update(avgRssi);
-    device.distance = calculateDistance(device.filteredRssi);
-    device.status = (device.distance > 0 && device.distance <= config.maxDistance) ? "present" : "out_of_range";
-    
-    // Send individual report
-    if (sendReport(device.name, device.distance, device.status, avgRssi, device.filteredRssi)) {
-      successCount++;
-    }
-    
-    delay(50); // Small delay between reports
-  }
-  
-  return successCount > 0;
-}
+  if (scannedDevices.empty() && explicitTargets.empty()) return false;
+  if (WiFi.status() != WL_CONNECTED) return false;
 
-// Send single device report
-bool sendReport(const String& deviceName, float distance, const String& status, float rssi, float filteredRssi) {
-  reportsSent++;
-  
   initSecureClient();
-  
   HTTPClient https;
   String url = String(serverUrl) + "/reader-log";
-  
+
   if (!https.begin(*secureClient, url)) {
-    Serial.println("[REPORT] Failed to begin HTTPS");
-    reportsFailed++;
+    Serial.println("[BATCH] Failed to begin HTTPS");
     return false;
   }
-  
+
   https.addHeader("Content-Type", "application/json");
   https.addHeader("X-Reader-Key", readerKey);
   https.setTimeout(5000);
   https.setReuse(false);
-  
-  char jsonBuffer[384];
-  snprintf(jsonBuffer, sizeof(jsonBuffer),
-    "{\"reader_name\":\"%s\",\"device_name\":\"%s\",\"type\":\"%s\",\"status\":\"%s\","
-    "\"estimated_distance\":%.2f,\"rssi\":%.1f,\"kalman_rssi\":%.1f}",
-    DEVICE_NAME, deviceName.c_str(), 
-    (status == "present") ? "heartbeat" : "alert",
-    status.c_str(),
-    round(distance * 100) / 100.0,
-    round(rssi * 10) / 10.0,
-    round(filteredRssi * 10) / 10.0
-  );
-  
-  int httpCode = https.POST(jsonBuffer);
-  bool success = (httpCode >= 200 && httpCode < 300);
-  
-  if (success) {
-    reportsSuccess++;
-    Serial.printf("[REPORT] %s: %.1f->%.1f dBm, %.2fm (%s) - OK\n", 
-                  deviceName.c_str(), rssi, filteredRssi, distance, status.c_str());
-  } else {
-    reportsFailed++;
-    Serial.printf("[REPORT] %s: Failed (HTTP %d)\n", deviceName.c_str(), httpCode);
+
+  // Compose JSON body
+  String payload = "{\"reader_name\":\"";
+  payload += DEVICE_NAME;
+  payload += "\",\"devices\":[";
+
+  int included = 0;
+
+  // For tracking which explicitTargets were found
+  std::vector<String> foundNames;
+
+  // Add all scanned devices to batch
+  for (auto& pair : scannedDevices) {
+    DeviceData& device = pair.second;
+    if (device.sampleCount == 0) continue;
+
+    float avgRssi = device.rssiSum / device.sampleCount;
+
+    // Kalman filter
+    if (deviceFilters.find(device.name) == deviceFilters.end()) {
+      deviceFilters[device.name] = KalmanFilter(config.kalman.Q, config.kalman.R, config.kalman.P, config.kalman.initial);
+    }
+    device.filteredRssi = deviceFilters[device.name].update(avgRssi);
+    device.distance = calculateDistance(device.filteredRssi);
+    device.status = (device.distance > 0 && device.distance <= config.maxDistance) ? "present" : "out_of_range";
+
+    foundNames.push_back(device.name);
+
+    char deviceBuffer[256];
+    snprintf(deviceBuffer, sizeof(deviceBuffer),
+      "{\"device_name\":\"%s\",\"type\":\"%s\",\"status\":\"%s\",\"estimated_distance\":%.2f,"
+      "\"rssi\":%.1f,\"kalman_rssi\":%.1f}",
+      device.name.c_str(),
+      (device.status == "present") ? "heartbeat" : "alert",
+      device.status.c_str(),
+      round(device.distance * 100) / 100.0,
+      round(avgRssi * 10) / 10.0,
+      round(device.filteredRssi * 10) / 10.0
+    );
+
+    if (included > 0) payload += ",";
+    payload += deviceBuffer;
+    included++;
   }
-  
+
+  // Add "not_found" for explicitTargets not in foundNames
+  for (const String& target : explicitTargets) {
+    bool found = false;
+    for (const String& seen : foundNames) {
+      if (seen == target) {
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      char notFoundBuffer[128];
+      snprintf(notFoundBuffer, sizeof(notFoundBuffer),
+        "{\"device_name\":\"%s\",\"type\":\"alert\",\"status\":\"not_found\",\"estimated_distance\":-1.0,"
+        "\"rssi\":-100.0,\"kalman_rssi\":-100.0}", target.c_str());
+
+      if (included > 0) payload += ",";
+      payload += notFoundBuffer;
+      included++;
+    }
+  }
+
+  payload += "]}";
+
+  // Send batch POST
+  int httpCode = https.POST(payload);
+  bool success = (httpCode >= 200 && httpCode < 300);
+
+  if (success) {
+    reportsSuccess += included;
+    Serial.printf("[BATCH] Sent %d device reports - OK (HTTP %d)\n", included, httpCode);
+  } else {
+    reportsFailed += included;
+    Serial.printf("[BATCH] Failed to send batch reports (HTTP %d)\n", httpCode);
+    Serial.println(payload); // For debugging
+  }
+
   https.end();
   return success;
 }
@@ -442,40 +461,39 @@ bool sendReport(const String& deviceName, float distance, const String& status, 
 // Advanced multi-sample scanning
 void performMultiSampleScan() {
   scanCount++;
-  Serial.printf("\n[SCAN #%lu] Multi-sample scan (mode: %s, samples: %d)...\n", 
+  Serial.printf("\n[SCAN #%lu] Multi-sample scan (mode: %s, samples: %d)...\n",
                 scanCount, discoveryMode == PATTERN ? "PATTERN" : "EXPLICIT", config.sampleCount);
-  Serial.printf("[HEAP] Free: %d bytes (largest: %d)\n", 
+  Serial.printf("[HEAP] Free: %d bytes (largest: %d)\n",
                 ESP.getFreeHeap(), ESP.getMaxAllocHeap());
-  
+
   if (pBLEScan == nullptr) {
     Serial.println("[ERROR] BLE not initialized!");
     return;
   }
-  
-  // Clear previous scan data
+
   scannedDevices.clear();
-  
+
   // Perform multiple sample scans
   for (int sample = 0; sample < config.sampleCount; sample++) {
     Serial.printf("[SAMPLE %d/%d] Scanning...\n", sample + 1, config.sampleCount);
-    
+
     BLEScanResults* foundDevices = pBLEScan->start(config.scanTime, false);
     int deviceCount = foundDevices->getCount();
-    
+
     for (int i = 0; i < deviceCount; i++) {
       BLEAdvertisedDevice device = foundDevices->getDevice(i);
-      
+
       String deviceName = "";
       if (device.haveName()) {
         deviceName = device.getName().c_str();
       }
-      
+
       if (!shouldProcessDevice(deviceName)) {
         continue;
       }
-      
+
       float rssi = device.getRSSI();
-      
+
       // Add to or update device data
       if (scannedDevices.find(deviceName) == scannedDevices.end()) {
         DeviceData data;
@@ -490,41 +508,19 @@ void performMultiSampleScan() {
         scannedDevices[deviceName].lastSeen = millis();
       }
     }
-    
+
     pBLEScan->clearResults();
-    
+
     // Delay between samples (except after last sample)
     if (sample < config.sampleCount - 1) {
       delay(config.sampleDelayMs);
     }
   }
-  
-  // Process and report all scanned devices
+
   Serial.printf("[SCAN] Found %d unique matching devices\n", scannedDevices.size());
 
-  if (discoveryMode == EXPLICIT) {
-    // For explicit mode, report found devices and send "not_found" for missing
-    std::vector<String> foundNames;
-    for (const auto& pair : scannedDevices) {
-      foundNames.push_back(pair.first);
-    }
-    if (!scannedDevices.empty()) {
-      sendBatchReports();
-    }
-    // Report for each explicit target, if not found, send "not_found"
-    for (const String& target : explicitTargets) {
-      if (std::find(foundNames.begin(), foundNames.end(), target) == foundNames.end()) {
-        // Not found, so report "not_found"
-        sendReport(target, -1.0, "not_found", -100.0, -100.0);
-        delay(50);
-      }
-    }
-  } else {
-    // Pattern mode: report as usual
-    if (!scannedDevices.empty()) {
-      sendBatchReports();
-    }
-  }
+  // Regardless of mode, always use the batch report function (handles "not_found")
+  sendBatchReports();
 
   // Cleanup old filters
   if (deviceFilters.size() > 30) {
