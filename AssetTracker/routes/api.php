@@ -7,4 +7,4 @@ Route::get('/test', function () {
     return response()->json(['message' => 'API is working']);
 });
 Route::get('/reader-config', [ReaderController::class, 'getConfig']);
-Route::post('/reader-log', [ReaderController::class, 'receiveLocationLog']);
+Route::post('/reader-log', [ReaderController::class, 'receiveLocationLogs']);
