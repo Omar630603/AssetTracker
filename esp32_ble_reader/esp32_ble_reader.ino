@@ -282,24 +282,34 @@ bool fetchAndApplyConfig() {
       
       if (serverVersion != currentConfigVersion) {
         currentConfigVersion = serverVersion;
-        
+
+        // ---- TRACK OLD MODE FOR STATE CLEARING ----
+        DiscoveryMode oldMode = discoveryMode;
+
         // Update discovery mode
         String mode = doc["discovery_mode"] | "pattern";
         if (mode == "explicit") {
-          discoveryMode = EXPLICIT;
-          Serial.println("[CONFIG] Discovery mode: EXPLICIT");
-          
-          // Load explicit targets
-          explicitTargets.clear();
-          JsonArray targets = doc["targets"];
-          for (JsonVariant target : targets) {
-            explicitTargets.push_back(target.as<String>());
-            Serial.println("[CONFIG] Target: " + target.as<String>());
-          }
-          Serial.printf("[CONFIG] Loaded %d explicit targets\n", explicitTargets.size());
+            discoveryMode = EXPLICIT;
+            Serial.println("[CONFIG] Discovery mode: EXPLICIT");
+
+            // Load explicit targets
+            explicitTargets.clear();
+            JsonArray targets = doc["targets"];
+            for (JsonVariant target : targets) {
+                explicitTargets.push_back(target.as<String>());
+                Serial.println("[CONFIG] Target: " + target.as<String>());
+            }
+            Serial.printf("[CONFIG] Loaded %d explicit targets\n", explicitTargets.size());
         } else {
-          discoveryMode = PATTERN;
-          Serial.println("[CONFIG] Discovery mode: PATTERN");
+            discoveryMode = PATTERN;
+            Serial.println("[CONFIG] Discovery mode: PATTERN");
+        }
+
+        // ---- CLEAR SCAN/FILTER STATE IF MODE CHANGED ----
+        if (discoveryMode != oldMode) {
+            Serial.println("[CONFIG] Discovery mode changed! Clearing scan/filter state.");
+            scannedDevices.clear();
+            deviceFilters.clear(); // Optional: remove if you want to preserve filters
         }
         
         // Update configuration (aligned with Laravel model)
@@ -357,8 +367,15 @@ bool fetchAndApplyConfig() {
 
 // Send batch reports for multiple devices
 bool sendBatchReports() {
-  if (scannedDevices.empty() && explicitTargets.empty()) return false;
+  // Don't send if not connected
   if (WiFi.status() != WL_CONNECTED) return false;
+
+  // ---- CRITICAL PART: Only send if needed ----
+  if (discoveryMode == PATTERN) {
+    if (scannedDevices.empty()) return false; // Don't send at all if nothing found in PATTERN
+  } else if (discoveryMode == EXPLICIT) {
+    if (scannedDevices.empty() && explicitTargets.empty()) return false;
+  }
 
   initSecureClient();
   HTTPClient https;
@@ -374,14 +391,11 @@ bool sendBatchReports() {
   https.setTimeout(5000);
   https.setReuse(false);
 
-  // Compose JSON body
   String payload = "{\"reader_name\":\"";
   payload += DEVICE_NAME;
   payload += "\",\"devices\":[";
 
   int included = 0;
-
-  // For tracking which explicitTargets were found
   std::vector<String> foundNames;
 
   // Add all scanned devices to batch
@@ -390,8 +404,6 @@ bool sendBatchReports() {
     if (device.sampleCount == 0) continue;
 
     float avgRssi = device.rssiSum / device.sampleCount;
-
-    // Kalman filter
     if (deviceFilters.find(device.name) == deviceFilters.end()) {
       deviceFilters[device.name] = KalmanFilter(config.kalman.Q, config.kalman.R, config.kalman.P, config.kalman.initial);
     }
@@ -412,36 +424,36 @@ bool sendBatchReports() {
       round(avgRssi * 10) / 10.0,
       round(device.filteredRssi * 10) / 10.0
     );
-
     if (included > 0) payload += ",";
     payload += deviceBuffer;
     included++;
   }
 
-  // Add "not_found" for explicitTargets not in foundNames
-  for (const String& target : explicitTargets) {
-    bool found = false;
-    for (const String& seen : foundNames) {
-      if (seen == target) {
-        found = true;
-        break;
+  // Only add "not_found" if discoveryMode is EXPLICIT
+  if (discoveryMode == EXPLICIT) {
+    for (const String& target : explicitTargets) {
+      bool found = false;
+      for (const String& seen : foundNames) {
+        if (seen == target) {
+          found = true;
+          break;
+        }
       }
-    }
-    if (!found) {
-      char notFoundBuffer[128];
-      snprintf(notFoundBuffer, sizeof(notFoundBuffer),
-        "{\"device_name\":\"%s\",\"type\":\"alert\",\"status\":\"not_found\",\"estimated_distance\":-1.0,"
-        "\"rssi\":-100.0,\"kalman_rssi\":-100.0}", target.c_str());
+      if (!found) {
+        char notFoundBuffer[128];
+        snprintf(notFoundBuffer, sizeof(notFoundBuffer),
+          "{\"device_name\":\"%s\",\"type\":\"alert\",\"status\":\"not_found\",\"estimated_distance\":-1.0,"
+          "\"rssi\":-100.0,\"kalman_rssi\":-100.0}", target.c_str());
 
-      if (included > 0) payload += ",";
-      payload += notFoundBuffer;
-      included++;
+        if (included > 0) payload += ",";
+        payload += notFoundBuffer;
+        included++;
+      }
     }
   }
 
   payload += "]}";
 
-  // Send batch POST
   int httpCode = https.POST(payload);
   bool success = (httpCode >= 200 && httpCode < 300);
 
