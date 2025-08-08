@@ -8,10 +8,10 @@ plt.rcParams['figure.facecolor'] = 'white'
 plt.rcParams['axes.facecolor'] = 'white'
 plt.rcParams.update({
     'font.size': 20,                 # Medium base font
-    'axes.labelsize': 22,
+    'axes.labelsize': 23,
     'axes.titlesize': 28,
-    'xtick.labelsize': 16,
-    'ytick.labelsize': 16,
+    'xtick.labelsize': 25,
+    'ytick.labelsize': 25,
     'legend.fontsize': 20,
     'legend.title_fontsize': 22,
     'lines.linewidth': 2.6,           # Medium-thick lines
@@ -39,7 +39,7 @@ ref_distances = sorted(df['ref_distance'].unique())
 for ref in ref_distances:
     plt.figure(figsize=(11, 7))
     plt.axhline(ref, color='black', linestyle='--', linewidth=2.2,
-                label=f'Reference: {ref} m', alpha=0.8, zorder=1)
+                label=f'Distance: {ref} m', alpha=0.8, zorder=1)
     for i, tag in enumerate(tags):
         vals = df[(df['ref_distance'] == ref) & (df['tag'] == tag)]['estimated_distance'].values
         plt.plot(range(1, len(vals)+1), vals,
@@ -49,11 +49,11 @@ for ref in ref_distances:
                  markerfacecolor='white', markeredgewidth=1.5)
     plt.xlabel('Sample Index', fontsize=22, fontweight='bold')
     plt.ylabel('Estimated Distance (m)', fontsize=22, fontweight='bold')
-    plt.title(f'Estimated Distance at Reference = {ref} m',
-              fontsize=28, fontweight='bold', pad=20)
+    # plt.title(f'Estimated Distance at Reference = {ref} m',
+    #           fontsize=28, fontweight='bold', pad=20)
     plt.ylim(0, max(11, ref+2))
     plt.xlim(1, len(vals))
-    plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=20, loc='best', borderpad=1)
+    plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='best', borderpad=1)
     plt.grid(alpha=0.35, linestyle='-', linewidth=1.1)
     plt.tight_layout()
     plt.show()
@@ -72,11 +72,11 @@ for tag in tags:
     kalman_smooth = pd.Series(tag_kalman).rolling(window=7, center=True, min_periods=1).mean()
     plt.plot(x, tag_data, color=RAW_COLOR, linewidth=2.6, label='Raw RSSI')
     plt.plot(x, kalman_smooth, color=KALMAN_COLOR, linewidth=3.2, linestyle='--', label='Kalman Filtered RSSI')
-    plt.xlabel('Sample Index', fontsize=22, fontweight='bold')
+    plt.xlabel('Sample Index 10 of Each Distance', fontsize=22, fontweight='bold')
     plt.ylabel('RSSI (dBm)', fontsize=22, fontweight='bold')
-    plt.title(f'RSSI Signal (Raw vs Kalman) - {tag}', fontsize=28, fontweight='bold', pad=20)
+    # plt.title(f'RSSI Signal (Raw vs Kalman) - {tag}', fontsize=28, fontweight='bold', pad=20)
     plt.grid(alpha=0.35, linestyle='-', linewidth=1.1)
-    plt.legend(loc='upper right', frameon=True, fancybox=True, shadow=True, fontsize=20, borderpad=1)
+    plt.legend(loc='upper right', frameon=True, fancybox=True, shadow=True, fontsize=23, borderpad=1)
     plt.tight_layout()
     plt.show()
 
@@ -98,12 +98,12 @@ for tag in tags:
     plt.scatter(x_kal, g_kal['max'], color=KALMAN_MAX, marker='_', s=360, label='Kalman Max')
     plt.plot(x_raw, g_raw['mean'], color=RAW_COLOR, marker='o', markersize=12, linewidth=3.2, label='Raw Mean')
     plt.plot(x_kal, g_kal['mean'], color=KALMAN_COLOR, marker='o', markersize=12, linewidth=3.2, linestyle='--', label='Kalman Mean')
-    plt.xlabel('Reference Distance (m)', fontsize=22, fontweight='bold')
+    plt.xlabel('Distance (m)', fontsize=22, fontweight='bold')
     plt.ylabel('RSSI (dBm)', fontsize=22, fontweight='bold')
-    plt.title(f'Min/Max/Mean RSSI (Raw & Kalman) by Distance - {tag}', fontsize=28, fontweight='bold', pad=20)
+    # plt.title(f'Min/Max/Mean RSSI (Raw & Kalman) by Distance - {tag}', fontsize=28, fontweight='bold', pad=20)
     handles, labels = plt.gca().get_legend_handles_labels()
     by_label = dict(zip(labels, handles))
-    plt.legend(by_label.values(), by_label.keys(), frameon=True, fancybox=True, shadow=True, fontsize=20, ncol=2, borderpad=1)
+    plt.legend(by_label.values(), by_label.keys(), frameon=True, fancybox=True, shadow=True, fontsize=23, ncol=2, borderpad=1)
     plt.grid(alpha=0.35, linestyle='-', linewidth=1.1)
     plt.tight_layout()
     plt.show()
@@ -127,9 +127,9 @@ plt.axvline(kalman_mean, color=KALMAN_COLOR, linestyle='--', linewidth=3,
            label=f'Kalman Mean: {kalman_mean:.2f}m')
 plt.xlabel('Absolute Error (meters)', fontsize=22, fontweight='bold')
 plt.ylabel('Frequency', fontsize=22, fontweight='bold')
-plt.title('Distance Estimation Error Distribution Comparison',
-          fontsize=28, fontweight='bold', pad=20)
-plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=20, borderpad=1)
+# plt.title('Distance Estimation Error Distribution Comparison',
+#           fontsize=28, fontweight='bold', pad=20)
+plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, borderpad=1)
 plt.grid(alpha=0.35, linestyle='-', linewidth=1.1)
 plt.tight_layout()
 plt.show()

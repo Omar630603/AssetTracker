@@ -33,17 +33,18 @@ cum_total = cum_total.reindex(minutes, method='ffill').fillna(0)
 
 # --- PLOT (real data only) ---
 plt.figure(figsize=(13, 7))
+plt.tick_params(axis='both', which='major', labelsize=25)
 plt.plot(minutes, cum_room, label='Room Reader (Explicit)', color=COLORS[0], linewidth=4, zorder=2)
 plt.plot(minutes, cum_hall, label='Hallway Reader (Pattern)', color=COLORS[1], linewidth=4, zorder=2)
 plt.plot(minutes, cum_total, label='Total Logs', color=COLORS[2], linewidth=5, linestyle='--', zorder=1)
 
 plt.xlabel('Time (minutes)', fontsize=20, fontweight='bold')
 plt.ylabel('Cumulative Log Count', fontsize=20, fontweight='bold')
-plt.title('Cumulative Asset Log Count per Reader (1 Hour)', 
-          fontsize=26, fontweight='bold', pad=26)
+# plt.title('Cumulative Asset Log Count per Reader (1 Hour)', 
+#           fontsize=26, fontweight='bold', pad=26)
 plt.ylim(0, max(cum_total.max(), 30) * 1.08)
 plt.xlim(0, minutes.max())
-plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=17, loc='upper left')
+plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='upper left')
 plt.grid(alpha=0.3, linestyle='-', linewidth=1)
 plt.tight_layout()
 plt.show()
