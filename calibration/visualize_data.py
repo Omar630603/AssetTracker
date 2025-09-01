@@ -51,6 +51,7 @@ def plot_rssi_stats(summary, title, df_exp):
     # plt.title(f'{title} - Min/Average/Max RSSI Values')
     plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='best', borderpad=1)
     plt.tick_params(axis='both', which='major', labelsize=25)
+    plt.savefig(f'{title}_MinAverageMax_RSSI_Values.png', dpi=300, bbox_inches='tight')
     plt.show()
 
     # ---------------------------
@@ -88,6 +89,7 @@ def plot_rssi_stats(summary, title, df_exp):
     # plt.title(f'{title} - Success/Failed RSSI Markers')
     plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='best', borderpad=1)
     plt.tick_params(axis='both', which='major', labelsize=25)
+    plt.savefig(f'{title}_Success_Failed_RSSI_Markers', dpi=300, bbox_inches='tight')
     plt.show()
 
     # ---------------------------
@@ -121,6 +123,7 @@ def plot_rssi_stats(summary, title, df_exp):
     # plt.title(f'{title} - Regression Line for Success RSSI')
     plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='best', borderpad=1)
     plt.tick_params(axis='both', which='major', labelsize=25)
+    plt.savefig(f'{title}_Regression_Line_for_Success_RSSI', dpi=300, bbox_inches='tight')
     plt.show()
 
 def plot_moving_experiment(file_path):
@@ -149,6 +152,7 @@ def plot_moving_experiment(file_path):
     # plt.title('Moving Experiment - RSSI Over Time')
     plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='best', borderpad=1)
     plt.tick_params(axis='both', which='major', labelsize=25)
+    plt.savefig('Moving_Experiment_RSSI_Over_Time', dpi=300, bbox_inches='tight')
     plt.show()
 
 # ---------------------------
