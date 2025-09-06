@@ -179,3 +179,120 @@ print(wall_summary)
 # Plot Moving Experiment
 # ---------------------------
 plot_moving_experiment('./.output/moving_experiment.csv')
+
+def plot_rssi_stats_logarithmic(summary, title, df_exp):
+    """
+    Plot RSSI statistics with logarithmic scale on Y-axis
+    Since RSSI values are negative, we plot |RSSI| (absolute values)
+    """
+    # ---------------------------
+    # Error bar plot with logarithmic scale
+    # ---------------------------
+    plt.figure(figsize=(11, 7))
+    
+    # Convert to absolute values for logarithmic scale
+    avg_rssi_abs = np.abs(summary['Avg RSSI'])
+    min_rssi_abs = np.abs(summary['Max RSSI'])  # Note: Max RSSI (less negative) becomes Min absolute
+    max_rssi_abs = np.abs(summary['Min RSSI'])  # Note: Min RSSI (more negative) becomes Max absolute
+    
+    plt.errorbar(
+        summary.index,
+        avg_rssi_abs,
+        yerr=[avg_rssi_abs - min_rssi_abs, max_rssi_abs - avg_rssi_abs],
+        fmt='o-',
+        capsize=8,
+        label='RSSI Reading',
+        color='teal',
+        markersize=10
+    )
+    
+    plt.yscale('log')
+    plt.xticks(np.arange(min(summary.index), max(summary.index) + 1, 1))
+    plt.grid(True, linestyle='--', alpha=0.7, linewidth=1.1)
+    plt.grid(True, which='minor', linestyle=':', alpha=0.4)
+    plt.xlabel('Distance (meters)', fontsize=22, fontweight='bold')
+    plt.ylabel('|RSSI| (dBm) - Log Scale', fontsize=22, fontweight='bold')
+    plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='best', borderpad=1)
+    plt.tick_params(axis='both', which='major', labelsize=25)
+    
+    # Set y-axis limits to ensure proper visualization
+    plt.ylim([30, 100])  # Adjust based on your RSSI range (typically 30-90 dBm in absolute)
+    
+    plt.savefig(f'{title}_MinAverageMax_RSSI_Values_Logarithmic.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+def plot_moving_experiment_logarithmic(file_path):
+    """
+    Plot moving experiment with logarithmic scale on Y-axis
+    """
+    df = pd.read_csv(file_path)
+    df_success = df[df['Status'] == 'Success']
+    df_failed = df[df['Status'] == 'Failed']
+    
+    stats = df_success.groupby('Reading Number').agg({
+        'RSSI': ['min', 'mean', 'max'],
+        'Calculated Distance': 'mean'
+    })
+    
+    plt.figure(figsize=(11, 7))
+    
+    # Convert to absolute values for logarithmic scale
+    avg_rssi_abs = np.abs(stats['RSSI']['mean'])
+    
+    # Plot success points
+    plt.plot(stats.index, avg_rssi_abs, 'o-', label='Average RSSI')
+    
+    # Plot failed points if they exist
+    if not df_failed.empty and 'RSSI' in df_failed.columns:
+        # Filter out any NaN or invalid RSSI values
+        valid_failed = df_failed.dropna(subset=['RSSI'])
+        if not valid_failed.empty:
+            failed_rssi_abs = np.abs(valid_failed['RSSI'])
+            plt.scatter(valid_failed['Reading Number'], failed_rssi_abs, 
+                       label='Failed', marker='x', color='red', s=50)
+    
+    plt.yscale('log')
+    
+    # Set x-axis ticks
+    if 'Reading Number' in df.columns and not df['Reading Number'].empty:
+        xmin = int(df['Reading Number'].min())
+        xmax = int(df['Reading Number'].max())
+        # Reduce number of ticks for readability
+        step = max(1, (xmax - xmin) // 10)
+        plt.xticks(np.arange(xmin, xmax + 1, step))
+    
+    plt.grid(True, linestyle='--', alpha=0.7, linewidth=1.1)
+    plt.grid(True, which='minor', linestyle=':', alpha=0.4)
+    plt.xlabel('Sample Index', fontsize=22, fontweight='bold')
+    plt.ylabel('|RSSI| (dBm) - Log Scale', fontsize=22, fontweight='bold')
+    plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='best', borderpad=1)
+    plt.tick_params(axis='both', which='major', labelsize=25)
+    
+    # Set y-axis limits
+    plt.ylim([30, 100])  # Adjust based on your RSSI range
+    
+    plt.savefig('Moving_Experiment_RSSI_Over_Time_Logarithmic.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+# ---------------------------
+# Generate Logarithmic Versions of All Plots
+# ---------------------------
+print("\n" + "="*50)
+print("Generating Logarithmic Scale Versions...")
+print("="*50)
+
+# Generate logarithmic version for Clear Path (Figure 6)
+print("\nGenerating Clear Path Logarithmic Plot...")
+plot_rssi_stats_logarithmic(clear_summary, 'Clear_Path', clear_data)
+
+# Generate logarithmic version for Wall Path (Figure 7)
+print("\nGenerating Wall Path Logarithmic Plot...")
+plot_rssi_stats_logarithmic(wall_summary, 'Wall_Path', wall_data)
+
+# Generate logarithmic version for Moving Experiment (Figure 8)
+print("\nGenerating Moving Experiment Logarithmic Plot...")
+plot_moving_experiment_logarithmic('./.output/moving_experiment.csv')
+
+print("\n" + "="*50)
+print("All logarithmic plots have been generated and saved!")
+print("="*50)
