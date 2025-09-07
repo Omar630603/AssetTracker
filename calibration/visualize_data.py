@@ -183,22 +183,22 @@ plot_moving_experiment('./.output/moving_experiment.csv')
 def plot_rssi_stats_logarithmic(summary, title, df_exp):
     """
     Plot RSSI statistics with logarithmic scale on Y-axis
-    Since RSSI values are negative, we plot |RSSI| (absolute values)
+    Using 10^(RSSI/10) conversion for proper logarithmic representation
     """
     # ---------------------------
     # Error bar plot with logarithmic scale
     # ---------------------------
     plt.figure(figsize=(11, 7))
     
-    # Convert to absolute values for logarithmic scale
-    avg_rssi_abs = np.abs(summary['Avg RSSI'])
-    min_rssi_abs = np.abs(summary['Max RSSI'])  # Note: Max RSSI (less negative) becomes Min absolute
-    max_rssi_abs = np.abs(summary['Min RSSI'])  # Note: Min RSSI (more negative) becomes Max absolute
+    # Convert RSSI values using 10^(RSSI/10)
+    avg_rssi_converted = 10**(summary['Avg RSSI']/10)
+    min_rssi_converted = 10**(summary['Min RSSI']/10)
+    max_rssi_converted = 10**(summary['Max RSSI']/10)
     
     plt.errorbar(
         summary.index,
-        avg_rssi_abs,
-        yerr=[avg_rssi_abs - min_rssi_abs, max_rssi_abs - avg_rssi_abs],
+        avg_rssi_converted,
+        yerr=[avg_rssi_converted - min_rssi_converted, max_rssi_converted - avg_rssi_converted],
         fmt='o-',
         capsize=8,
         label='RSSI Reading',
@@ -211,12 +211,9 @@ def plot_rssi_stats_logarithmic(summary, title, df_exp):
     plt.grid(True, linestyle='--', alpha=0.7, linewidth=1.1)
     plt.grid(True, which='minor', linestyle=':', alpha=0.4)
     plt.xlabel('Distance (meters)', fontsize=22, fontweight='bold')
-    plt.ylabel('|RSSI| (dBm) - Log Scale', fontsize=22, fontweight='bold')
+    plt.ylabel('RSSI (mWatt)', fontsize=22, fontweight='bold')
     plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='best', borderpad=1)
     plt.tick_params(axis='both', which='major', labelsize=25)
-    
-    # Set y-axis limits to ensure proper visualization
-    plt.ylim([30, 100])  # Adjust based on your RSSI range (typically 30-90 dBm in absolute)
     
     plt.savefig(f'{title}_MinAverageMax_RSSI_Values_Logarithmic.png', dpi=300, bbox_inches='tight')
     plt.show()
@@ -224,6 +221,7 @@ def plot_rssi_stats_logarithmic(summary, title, df_exp):
 def plot_moving_experiment_logarithmic(file_path):
     """
     Plot moving experiment with logarithmic scale on Y-axis
+    Using 10^(RSSI/10) conversion for proper logarithmic representation
     """
     df = pd.read_csv(file_path)
     df_success = df[df['Status'] == 'Success']
@@ -236,19 +234,19 @@ def plot_moving_experiment_logarithmic(file_path):
     
     plt.figure(figsize=(11, 7))
     
-    # Convert to absolute values for logarithmic scale
-    avg_rssi_abs = np.abs(stats['RSSI']['mean'])
+    # Convert RSSI values using 10^(RSSI/10)
+    avg_rssi_converted = 10**(stats['RSSI']['mean']/10)
     
     # Plot success points
-    plt.plot(stats.index, avg_rssi_abs, 'o-', label='Average RSSI')
+    plt.plot(stats.index, avg_rssi_converted, 'o-', label='Average RSSI')
     
     # Plot failed points if they exist
     if not df_failed.empty and 'RSSI' in df_failed.columns:
         # Filter out any NaN or invalid RSSI values
         valid_failed = df_failed.dropna(subset=['RSSI'])
         if not valid_failed.empty:
-            failed_rssi_abs = np.abs(valid_failed['RSSI'])
-            plt.scatter(valid_failed['Reading Number'], failed_rssi_abs, 
+            failed_rssi_converted = 10**(valid_failed['RSSI']/10)
+            plt.scatter(valid_failed['Reading Number'], failed_rssi_converted, 
                        label='Failed', marker='x', color='red', s=50)
     
     plt.yscale('log')
@@ -264,12 +262,9 @@ def plot_moving_experiment_logarithmic(file_path):
     plt.grid(True, linestyle='--', alpha=0.7, linewidth=1.1)
     plt.grid(True, which='minor', linestyle=':', alpha=0.4)
     plt.xlabel('Sample Index', fontsize=22, fontweight='bold')
-    plt.ylabel('|RSSI| (dBm) - Log Scale', fontsize=22, fontweight='bold')
+    plt.ylabel('RSSI (mWatt)', fontsize=22, fontweight='bold')
     plt.legend(frameon=True, fancybox=True, shadow=True, fontsize=23, loc='best', borderpad=1)
     plt.tick_params(axis='both', which='major', labelsize=25)
-    
-    # Set y-axis limits
-    plt.ylim([30, 100])  # Adjust based on your RSSI range
     
     plt.savefig('Moving_Experiment_RSSI_Over_Time_Logarithmic.png', dpi=300, bbox_inches='tight')
     plt.show()
